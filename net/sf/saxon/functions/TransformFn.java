@@ -1,0 +1,1322 @@
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018-2023 Saxonica Limited
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+package net.sf.saxon.functions;
+
+import net.sf.saxon.Configuration;
+import net.sf.saxon.Version;
+import net.sf.saxon.event.PipelineConfiguration;
+import net.sf.saxon.event.Receiver;
+import net.sf.saxon.expr.Callable;
+import net.sf.saxon.expr.StaticProperty;
+import net.sf.saxon.expr.XPathContext;
+import net.sf.saxon.lib.*;
+import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.arrays.ArrayItemType;
+import net.sf.saxon.ma.map.HashTrieMap;
+import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.ma.map.MapType;
+import net.sf.saxon.om.*;
+import net.sf.saxon.s9api.*;
+import net.sf.saxon.serialize.CharacterMap;
+import net.sf.saxon.serialize.CharacterMapIndex;
+import net.sf.saxon.serialize.SerializationProperties;
+import net.sf.saxon.trans.StylesheetCache;
+import net.sf.saxon.trans.UncheckedXPathException;
+import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.trans.XsltController;
+import net.sf.saxon.tree.iter.AtomicIterator;
+import net.sf.saxon.tree.wrapper.RebasedDocument;
+import net.sf.saxon.type.SpecificFunctionType;
+import net.sf.saxon.value.SequenceType;
+import net.sf.saxon.value.*;
+
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Source;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.stream.StreamSource;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * This class implements the function transform(), which is a standard function in XPath 3.1
+ */
+public class TransformFn extends SystemFunction implements Callable {
+
+
+    private static final String[] transformOptionNames30 = new String[]{
+            "package-name", "package-version", "package-node", "package-location", "static-params", "global-context-item",
+            "template-params", "tunnel-params", "initial-function", "function-params",
+            "enable-assertions"
+    };
+
+    private final static String dummyBaseOutputUriScheme = "dummy";
+
+
+    private boolean isTransformOptionName30(String str) {
+        for (String s : transformOptionNames30) {
+            if (s.equals(str)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    public static OptionsParameter makeOptionsParameter() {
+        OptionsParameter op = new OptionsParameter();
+        op.addAllowedOption("xslt-version", SequenceType.SINGLE_DECIMAL);
+        op.addAllowedOption("stylesheet-location", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("stylesheet-node", SequenceType.SINGLE_NODE);
+        op.addAllowedOption("stylesheet-text", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("stylesheet-base-uri", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("base-output-uri", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("stylesheet-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
+        op.addAllowedOption("source-node", SequenceType.SINGLE_NODE);
+        op.addAllowedOption("source-location", SequenceType.SINGLE_STRING); // Saxon extension (feature 3619)
+        op.addAllowedOption("initial-mode", SequenceType.SINGLE_QNAME);
+        op.addAllowedOption("initial-match-selection", SequenceType.ANY_SEQUENCE);
+        op.addAllowedOption("initial-template", SequenceType.SINGLE_QNAME);
+        op.addAllowedOption("delivery-format", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("serialization-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
+        op.addAllowedOption("vendor-options", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
+        op.addAllowedOption("cache", SequenceType.SINGLE_BOOLEAN);
+        op.addAllowedOption("enable-assertions", SequenceType.SINGLE_BOOLEAN);
+        op.addAllowedOption("enable-messages", SequenceType.SINGLE_BOOLEAN);
+        op.addAllowedOption("package-name", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("package-version", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("package-node", SequenceType.SINGLE_NODE);
+        op.addAllowedOption("package-location", SequenceType.SINGLE_STRING);
+        op.addAllowedOption("static-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
+        op.addAllowedOption("global-context-item", SequenceType.SINGLE_ITEM);
+        op.addAllowedOption("template-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
+        op.addAllowedOption("tunnel-params", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
+        op.addAllowedOption("initial-function", SequenceType.SINGLE_QNAME);
+        op.addAllowedOption("function-params", ArrayItemType.SINGLE_ARRAY);
+        op.addAllowedOption("requested-properties", SequenceType.makeSequenceType(MapType.ANY_MAP_TYPE, StaticProperty.EXACTLY_ONE));
+        op.addAllowedOption("post-process", SequenceType.makeSequenceType(
+                new SpecificFunctionType(new SequenceType[]{SequenceType.SINGLE_STRING, SequenceType.ANY_SEQUENCE}, SequenceType.ANY_SEQUENCE),
+                StaticProperty.EXACTLY_ONE));
+                // function(xs:string, item()*) as item()*
+        return op;
+    }
+
+    /**
+     * Check the options supplied:
+     * 1. only allow XSLT 3.0 options if using an XSLT 3.0 processor (throw an error if any are supplied and not an XSLT 3.0 processor);
+     * 2. ignore any other options not in the specs;
+     * 3. validate the types of the option values supplied.
+     * This method is called AFTER doing the standard type-checking on options parameters; on entry the map will only contain
+     * options with recognized names and type-valid values.
+     */
+
+    private void checkTransformOptions(Map<String, GroundedValue> options, XPathContext context, int languageVersion) throws XPathException {
+        if (options.isEmpty()) {
+            throw new XPathException("No transformation options supplied", "FOXT0002");
+        }
+
+        for (String keyName : options.keySet()) {
+            if (isTransformOptionName30(keyName) && languageVersion < 30) {
+                throw new XPathException("The transform option " + keyName + " is only available when using an XSLT 3.0 processor", "FOXT0002");
+            }
+        }
+    }
+
+    private String checkStylesheetMutualExclusion(Map<String, GroundedValue> map) throws XPathException {
+        return exactlyOneOf(map, "stylesheet-location", "stylesheet-node", "stylesheet-text");
+    }
+
+    private String checkStylesheetMutualExclusion30(Map<String, GroundedValue> map) throws XPathException {
+        String styleOption = exactlyOneOf(map, "stylesheet-location", "stylesheet-node", "stylesheet-text",
+                                          "package-name", "package-node", "package-location");
+        if (styleOption.equals("package-location")) {
+            throw new XPathException("The transform option " + styleOption + " is not implemented in Saxon", "FOXT0002");
+        }
+        return styleOption;
+    }
+
+    private String checkInvocationMutualExclusion(Map<String, GroundedValue> options) throws XPathException {
+        return oneOf(options, "initial-mode", "initial-template");
+    }
+
+    /**
+     * Check that at most one of a set of keys is present in the map, and return the one
+     * that is present.
+     * @param map the map to be searched
+     * @param keys the keys to look for
+     * @return if one of the keys is present, return that key; otherwise return null
+     * @throws XPathException if more than one of the keys is present
+     */
+
+    private String oneOf(Map<String, GroundedValue> map, String... keys) throws XPathException {
+        String found = null;
+        for (String s : keys) {
+            if (map.get(s) != null) {
+                if (found != null) {
+                    throw new XPathException(
+                            "The following transform options are mutually exclusive: " + enumerate(keys), "FOXT0002");
+                } else {
+                    found = s;
+                }
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Check that exactly one of a set of keys is present in the map, and return the one
+     * that is present.
+     *
+     * @param map  the map to be searched
+     * @param keys the keys to look for
+     * @return if exactly one of the keys is present, return that key
+     * @throws XPathException if none of the keys is present or if more than one of the keys is present
+     */
+
+    private String exactlyOneOf(Map<String, GroundedValue> map, String... keys) throws XPathException {
+        String found = oneOf(map, keys);
+        if (found == null) {
+            throw new XPathException("One of the following transform options must be present: " + enumerate(keys));
+        }
+        return found;
+    }
+
+    private String enumerate(String... keys) {
+        boolean first = true;
+        StringBuilder buffer = new StringBuilder(256);
+        for (String k : keys) {
+            if (first) {
+                first = false;
+            } else {
+                buffer.append(" | ");
+            }
+            buffer.append(k);
+        }
+        return buffer.toString();
+    }
+
+    private String checkInvocationMutualExclusion30(Map<String, GroundedValue> map) throws XPathException {
+        return oneOf(map, "initial-mode", "initial-template", "initial-function");
+    }
+
+    private void unsuitable(String option, String value) throws XPathException {
+        throw new XPathException("No XSLT processor is available with xsl:" + option + " = " + value, "FOXT0001");
+    }
+
+    private boolean asBoolean(AtomicValue value) throws XPathException {
+        if (value instanceof BooleanValue) {
+            return ((BooleanValue)value).getBooleanValue();
+        } else if (value instanceof StringValue) {
+            String s = Whitespace.normalizeWhitespace(value.getUnicodeStringValue()).toString();
+            if (s.equals("yes") || s.equals("true") || s.equals("1")) {
+                return true;
+            } else if (s.equals("no") || s.equals("false") || s.equals("0")) {
+                return false;
+            }
+        }
+        throw new XPathException("Unrecognized boolean value " + value, "FOXT0002");
+    }
+
+    private void setRequestedProperties(Map<String, GroundedValue> options, Processor processor) throws XPathException {
+        MapItem requestedProps = (MapItem) options.get("requested-properties").head();
+        AtomicIterator optionIterator = requestedProps.keys();
+        while (true) {
+            AtomicValue option = optionIterator.next();
+            if (option != null) {
+                StructuredQName optionName = ((QNameValue) option.head()).getStructuredQName();
+                AtomicValue value = (AtomicValue)requestedProps.get(option).head();
+                if (optionName.hasURI(NamespaceUri.XSLT)) {
+                    String localName = optionName.getLocalPart();
+                    String val = value.getStringValue();
+                    switch (localName) {
+                        case "vendor-url":
+                            if (!(val.contains("saxonica.com") || value.getStringValue().equals("Saxonica"))) {
+                                unsuitable("vendor-url", val);
+                            }
+                            break;
+                        case "product-name":
+                            if (!val.equals("SAXON")) {
+                                unsuitable("vendor-url", val);
+                            }
+                            break;
+                        case "product-version":
+                            if (!Version.getProductVersion().startsWith(val)) {
+                                unsuitable("product-version", val);
+                            }
+                            break;
+                        case "is-schema-aware": {
+                            boolean b = asBoolean(value);
+                            if (b) {
+                                if (processor.getUnderlyingConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)) {
+                                    processor.setConfigurationProperty(Feature.XSLT_SCHEMA_AWARE, true);
+                                } else {
+                                    unsuitable("is-schema-aware", val);
+                                }
+                            } else {
+                                if (processor.getUnderlyingConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)) {
+                                    unsuitable("is-schema-aware", val);
+                                }
+                            }
+                            break;
+                        }
+                        case "supports-serialization": {
+                            boolean b = asBoolean(value);
+                            if (!b) {
+                                unsuitable("supports-serialization", val);
+                            }
+                            break;
+                        }
+                        case "supports-backwards-compatibility": {
+                            boolean b = asBoolean(value);
+                            if (!b) {
+                                unsuitable("supports-backwards-compatibility", val);
+                            }
+                            break;
+                        }
+                        case "supports-namespace-axis": {
+                            boolean b = asBoolean(value);
+                            if (!b) {
+                                unsuitable("supports-namespace-axis", val);
+                            }
+                            break;
+                        }
+                        case "supports-streaming": {
+                            boolean b = asBoolean(value);
+                            if (b) {
+                                if (!processor.getUnderlyingConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)) {
+                                    unsuitable("supports-streaming", val);
+                                }
+                            } else {
+                                if (processor.getUnderlyingConfiguration().isLicensedFeature(Configuration.LicenseFeature.ENTERPRISE_XSLT)) {
+                                    processor.setConfigurationProperty(Feature.STREAMABILITY, "off");
+                                }
+                            }
+                            break;
+                        }
+                        case "supports-dynamic-evaluation": {
+                            boolean b = asBoolean(value);
+                            if (!b) {
+                                processor.setConfigurationProperty(Feature.DISABLE_XSL_EVALUATE, true);
+                            }
+                            break;
+                        }
+                        case "supports-higher-order-functions": {
+                            boolean b = asBoolean(value);
+                            if (!b) {
+                                unsuitable("supports-higher-order-functions", val);
+                            }
+                            break;
+                        }
+                        case "xpath-version": {
+                            try {
+                                if (Double.parseDouble(val) > 3.1) {
+                                    unsuitable("xpath-version", val);
+                                }
+                            } catch (NumberFormatException nfe) {
+                                unsuitable("xpath-version", val);
+                            }
+                            break;
+                        }
+                        case "xsd-version": {
+                            try {
+                                if (Double.parseDouble(val) > 1.1) {
+                                    unsuitable("xsd-version", val);
+                                }
+                            } catch (NumberFormatException nfe) {
+                                unsuitable("xsd-version", val);
+                            }
+                            break;
+                        }
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    private void setStaticParams(Map<String, GroundedValue> options, XsltCompiler xsltCompiler, boolean allowTypedNodes) throws XPathException {
+        MapItem staticParamsMap = (MapItem) options.get("static-params").head();
+        AtomicIterator paramIterator = staticParamsMap.keys();
+        while (true) {
+            AtomicValue param = paramIterator.next();
+            if (param != null) {
+                if (!(param instanceof QNameValue)) {
+                    throw new XPathException("Parameter names in static-params must be supplied as QNames", "FOXT0002");
+                }
+                QName paramName = new QName(((QNameValue) param).getStructuredQName());
+                GroundedValue value = staticParamsMap.get(param);
+                if (!allowTypedNodes) {
+                    checkSequenceIsUntyped(value);
+                }
+                XdmValue paramVal = XdmValue.wrap(value);
+                xsltCompiler.setParameter(paramName, paramVal);
+            } else {
+                break;
+            }
+        }
+    }
+
+    private XsltExecutable getStylesheet(Map<String, GroundedValue> options, XsltCompiler xsltCompiler, String styleOptionStr, XPathContext context) throws XPathException {
+        Item styleOptionItem = options.get(styleOptionStr).head();
+        URI stylesheetBaseUri = null;
+        Sequence seq;
+        if ((seq = options.get("stylesheet-base-uri")) != null) {
+            String styleBaseUri = seq.head().getStringValue();
+            stylesheetBaseUri = URI.create(styleBaseUri);
+            if (!stylesheetBaseUri.isAbsolute()) {
+                URI staticBase = getRetainedStaticContext().getStaticBaseUri();
+                stylesheetBaseUri = staticBase.resolve(styleBaseUri);
+            }
+        }
+        final List<XmlProcessingError> compileErrors = new ArrayList<>();
+        final ErrorReporter originalReporter = xsltCompiler.getErrorReporter();
+        xsltCompiler.setErrorReporter(new TransformErrorReporter(compileErrors, originalReporter));
+        boolean cacheable = options.get("static-params") == null;
+        if (options.get("cache") != null) {
+            cacheable &= ((BooleanValue) options.get("cache").head()).getBooleanValue();
+        }
+
+        StylesheetCache cache = context.getController().getStylesheetCache();
+        XsltExecutable executable = null;
+        Configuration config = xsltCompiler.getProcessor().getUnderlyingConfiguration();
+        switch (styleOptionStr) {
+            case "stylesheet-location":
+                String stylesheetLocation = styleOptionItem.getStringValue();
+                if (cacheable) {
+                    executable = cache.getStylesheetByLocation(stylesheetLocation); // if stylesheet is already cached
+                }
+                if (executable == null) {
+                    Source style = null;
+                    try {
+                        String base = getStaticBaseUriString();
+                        ResourceRequest request = new ResourceRequest();
+                        request.baseUri = base;
+                        request.relativeUri = stylesheetLocation;
+                        request.uri = ResolveURI.makeAbsolute(stylesheetLocation, base).toString();
+                        request.nature = ResourceRequest.XSLT_NATURE;
+                        request.purpose = ResourceRequest.ANY_PURPOSE;
+                        style = request.resolve(xsltCompiler.getResourceResolver(),
+                                                config.getResourceResolver(),
+                                                new DirectResourceResolver(config));
+                    } catch (URISyntaxException e) {
+                        throw new XPathException("Failed to resolve stylesheet-location in fn:transform: " + e.getMessage());
+                    } catch (TransformerException e) {
+                        throw new XPathException(e);
+                    }
+
+                    try {
+                        executable = xsltCompiler.compile(style);
+                    } catch (SaxonApiException e) {
+                        return reportCompileError(e, compileErrors);
+                    }
+                    if (cacheable) {
+                        cache.setStylesheetByLocation(stylesheetLocation, executable);
+                    }
+                }
+                break;
+            case "stylesheet-node":
+            case "package-node":
+                NodeInfo stylesheetNode = (NodeInfo) styleOptionItem;
+
+                if (stylesheetBaseUri != null && !stylesheetNode.getBaseURI().equals(stylesheetBaseUri.toASCIIString())) {
+
+                    // If the stylesheet is supplied as a node, and the stylesheet-base-uri option is supplied, and doesn't match
+                    // the base URIs of the nodes (tests fn-transform-19 and fn-transform-41), then we have a bit of a problem.
+                    // We wrap the stylesheet into a new virtual tree having the desired base URI.
+
+                    String newBaseUri = stylesheetBaseUri.toASCIIString();
+                    RebasedDocument rebased = new RebasedDocument(
+                            stylesheetNode.getTreeInfo(),
+                            node -> newBaseUri,
+                            node -> newBaseUri);
+
+                    stylesheetNode = rebased.getRootNode();
+                }
+
+                if (cacheable) {
+                    executable = cache.getStylesheetByNode(stylesheetNode); // if stylesheet is already cached
+                }
+                if (executable == null) {
+                    Source source = stylesheetNode.asActiveSource();
+                    if (stylesheetBaseUri != null) {
+                        source = AugmentedSource.makeAugmentedSource(source);
+                        source.setSystemId(stylesheetBaseUri.toASCIIString());
+                    }
+                    try {
+                        executable = xsltCompiler.compile(source);
+                    } catch (SaxonApiException e) {
+                        reportCompileError(e, compileErrors);
+                    }
+                    if (cacheable) {
+                        cache.setStylesheetByNode(stylesheetNode, executable);
+                    }
+                }
+                break;
+            case "stylesheet-text":
+                String stylesheetText = styleOptionItem.getStringValue();
+                if (cacheable) {
+                    executable = cache.getStylesheetByText(stylesheetText); // if stylesheet is already cached
+                }
+                if (executable == null) {
+                    StringReader sr = new StringReader(stylesheetText);
+                    StreamSource style = new StreamSource(sr);
+                    if (stylesheetBaseUri != null) {
+                        style.setSystemId(stylesheetBaseUri.toASCIIString());
+                    }
+                    try {
+                        executable = xsltCompiler.compile(style);
+                    } catch (SaxonApiException e) {
+                        reportCompileError(e, compileErrors);
+                    }
+                    if (cacheable) {
+                        cache.setStylesheetByText(stylesheetText, executable);
+                    }
+                }
+                break;
+            case "package-name":
+                String packageName = Whitespace.trim(styleOptionItem.getStringValue());
+                String packageVersion = null;
+                if (options.get("package-version") != null) {
+                    packageVersion = options.get("package-version").head().getStringValue();
+                }
+                try {
+                    XsltPackage pack = xsltCompiler.obtainPackage(packageName, packageVersion);
+                    if (pack == null) {
+                        throw new XPathException("Cannot locate package " + packageName + " version " + packageVersion, "FOXT0002");
+                    }
+                    executable = pack.link(); // load the already compiled package
+                } catch (SaxonApiException e) {
+                    if (e.getCause() instanceof XPathException) {
+                        throw (XPathException) e.getCause();
+                    } else {
+                        throw new XPathException(e);
+                    }
+                }
+                break;
+        }
+        return executable;
+    }
+
+    private static class TransformErrorReporter implements ErrorReporter {
+
+        private final List<XmlProcessingError> compileErrors;
+        private final ErrorReporter originalReporter;
+
+        public TransformErrorReporter(List<XmlProcessingError> compileErrors, ErrorReporter originalReporter) {
+            this.compileErrors = compileErrors;
+            this.originalReporter = originalReporter;
+        }
+
+        @Override
+        public void report (XmlProcessingError error){
+            if (!error.isWarning()) {
+                compileErrors.add(error);
+            }
+            originalReporter.report(error);
+        }
+
+    }
+
+    private XsltExecutable reportCompileError(SaxonApiException e, List<XmlProcessingError> compileErrors) throws XPathException {
+        for (XmlProcessingError te : compileErrors) {
+            // This is primarily so that the right error code is reported as required by the fn:transform spec
+            throw XPathException.fromXmlProcessingError(te)
+                    .maybeWithErrorCode("FOXT0002")
+                    .replacingErrorCode("SXXP0003", "FOXT0002");
+
+        }
+        if (e.getCause() instanceof XPathException) {
+            throw (XPathException) e.getCause();
+        } else {
+            throw new XPathException(e);
+        }
+    }
+
+
+    @Override
+    public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
+        Map<String, GroundedValue> options = getDetails().optionDetails.processSuppliedOptions((MapItem) arguments[0].head(), context);
+
+        Sequence vendorOptionsValue = options.get("vendor-options");
+        MapItem vendorOptions = vendorOptionsValue == null ? null : (MapItem) vendorOptionsValue.head();
+
+        Configuration targetConfig = context.getConfiguration();
+        boolean allowTypedNodes = true;
+        boolean tracing = targetConfig.isTiming();
+        int schemaValidation = Validation.DEFAULT;
+        
+        if (vendorOptions != null) {
+            Sequence optionValue = vendorOptions.get(new QNameValue("", NamespaceUri.SAXON, "configuration"));
+            if (optionValue != null) {
+                NodeInfo configFile = (NodeInfo) optionValue.head();
+                targetConfig = Configuration.readConfiguration(configFile.asActiveSource(), targetConfig);
+                allowTypedNodes = false;
+                if (!context.getConfiguration().getBooleanProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS)) {
+                    targetConfig.setBooleanProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS, false);
+                }
+            }
+            optionValue = vendorOptions.get(new QNameValue("", NamespaceUri.SAXON, "schema-validation"));
+            if (optionValue != null) {
+                String valOption = optionValue.head().getStringValue();
+                schemaValidation = Validation.getCode(valOption);
+            }
+        }
+        Processor processor = new Processor(true);
+        processor.setConfigurationProperty(Feature.CONFIGURATION, targetConfig);
+        int languageVersion = getRetainedStaticContext().getPackageData().getHostLanguageVersion();
+        checkTransformOptions(options, context, languageVersion);
+        boolean request40 = false;
+        if (options.get("xslt-version") != null) {
+            DecimalValue requestedVersion = ((DecimalValue) options.get("xslt-version").head());
+            if (requestedVersion.getDoubleValue() * 10 > languageVersion) {
+                throw new XPathException("The transform option xslt-version is higher than the language version supported by the calling transformation", "FOXT0002");
+            }
+            if (requestedVersion.getDoubleValue() == 4) {
+                 request40 = true;
+            }
+        }
+        String principalInput = oneOf(options, "source-node", "source-location", "initial-match-selection");
+
+        // Check the rules and restrictions for combinations of transform options
+        String invocationOption;
+        String invocationName = "invocation";
+        String styleOption;
+
+        invocationOption = checkInvocationMutualExclusion30(options);
+        // if invocation option is not initial-function or initial-template then check for source-node
+        if (invocationOption != null) {
+            invocationName = invocationOption;
+        }
+        if (!invocationName.equals("initial-template") && !invocationName.equals("initial-function") && principalInput == null) {
+            //throw new XPathException("A transform must have at least one of the following options: source-node|initial-template|initial-function", "FOXT0002");
+            invocationName = "initial-template";
+            options.put("initial-template", new QNameValue("", NamespaceUri.XSLT, "initial-template"));
+        }
+        // if invocation option is initial-function, then check for function-params
+        if (invocationName.equals("initial-function") && options.get("function-params") == null) {
+            throw new XPathException("Use of the transform option initial-function requires the function parameters to be supplied using the option function-params", "FOXT0002");
+        }
+        // function-params should only be used if invocation option is initial-function
+        if (!invocationName.equals("initial-function") && options.get("function-params") != null) {
+            throw new XPathException("The transform option function-params can only be used if the option initial-function is also used", "FOXT0002");
+        }
+        styleOption = checkStylesheetMutualExclusion30(options);
+
+        // Set the vendor options (configuration features) on the processor
+        if (options.get("requested-properties") != null) {
+            setRequestedProperties(options, processor);
+        }
+
+        XsltCompiler xsltCompiler = processor.newXsltCompiler();
+        xsltCompiler.setResourceResolver(context.getResourceResolver());
+        xsltCompiler.setJustInTimeCompilation(false);
+        xsltCompiler.setErrorReporter(context.getErrorReporter());
+        if (request40) {
+            xsltCompiler.setXsltLanguageVersion("4.0");
+        }
+        if (options.get("enable-assertions") != null) {
+            xsltCompiler.setAssertionsEnabled(asBoolean((AtomicValue) options.get("enable-assertions").head()));
+        }
+
+        // Set static params on XsltCompiler before compiling stylesheet (XSLT 3.0 processing only)
+        if (options.get("static-params") != null) {
+            setStaticParams(options, xsltCompiler, allowTypedNodes);
+        }
+
+        XsltExecutable sheet = getStylesheet(options, xsltCompiler, styleOption, context);
+        Xslt30Transformer transformer = sheet.load30();
+        transformer.setErrorReporter(context.getErrorReporter());
+
+
+        if (options.get("enable-assertions") != null) {
+            transformer.setAssertionsEnabled(asBoolean((AtomicValue) options.get("enable-assertions").head()));
+        }
+
+        boolean enableMessages = true;
+        if (options.get("enable-messages") != null) {
+            enableMessages = asBoolean((AtomicValue) options.get("enable-messages").head());
+        }
+        if (enableMessages) {
+            if (context.getController() instanceof XsltController) {
+                transformer.setMessageHandler(((XsltController) context.getController()).getMessageHandler());
+            }
+        } else {
+            transformer.setMessageHandler(msg -> {});
+        }
+
+        //Destination primaryDestination = new XdmDestination();
+        String deliveryFormat = "document";
+        NodeInfo sourceNode = null;
+        String sourceLocation = null;
+        XdmValue initialMatchSelection = null;
+        QName initialTemplate = null;
+        QName initialMode = null;
+        String baseOutputUri = null;
+        Map<QName, XdmValue> stylesheetParams = new HashMap<>();
+        MapItem serializationParamsMap = null;
+        XdmItem globalContextItem = null;
+        Map<QName, XdmValue> templateParams = new HashMap<>();
+        Map<QName, XdmValue> tunnelParams = new HashMap<>();
+        QName initialFunction = null;
+        XdmValue[] functionParams = null;
+        FunctionItem postProcessor = null;
+        String principalResultKey = "output";
+
+        for (String name : options.keySet()) {
+            Sequence value = options.get(name);
+            Item head = value.head();
+            switch (name) {
+                case "source-node":
+                    sourceNode = (NodeInfo) head;
+                    if (!allowTypedNodes) {
+                        checkSequenceIsUntyped(sourceNode);
+                    }
+                    break;
+                case "source-location":
+                    sourceLocation = head.getStringValue();
+                    break;
+                case "initial-template":
+                    initialTemplate = new QName(((QNameValue) head).getStructuredQName());
+                    break;
+                case "initial-mode":
+                    initialMode = new QName(((QNameValue) head).getStructuredQName());
+                    break;
+                case "initial-match-selection":
+                    initialMatchSelection = XdmValue.wrap(value);
+                    if (!allowTypedNodes) {
+                        checkSequenceIsUntyped(value);
+                    }
+                    break;
+                case "delivery-format":
+                    deliveryFormat = head.getStringValue();
+                    if (!deliveryFormat.equals("document") && !deliveryFormat.equals("serialized") && !deliveryFormat.equals("raw")) {
+                        throw new XPathException("The transform option delivery-format should be one of: document|serialized|raw ", "FOXT0002");
+                    }
+                    break;
+                case "base-output-uri":
+                    baseOutputUri = head.getStringValue();
+                    principalResultKey = baseOutputUri;
+
+                    break;
+                case "serialization-params":
+                    serializationParamsMap = (MapItem) head;
+
+                    break;
+                case "stylesheet-params": {
+                    MapItem params = (MapItem) head;
+                    processParams(params, stylesheetParams, allowTypedNodes);
+                    break;
+                }
+                case "global-context-item":
+                    if (!allowTypedNodes && head instanceof NodeInfo && ((NodeInfo) head).getTreeInfo().isTyped()) {
+                        throw new XPathException("Schema-validated nodes cannot be passed to fn:transform() when it runs under a different Saxon Configuration", "FOXT0002");
+                    }
+                    globalContextItem = (XdmItem) XdmValue.wrap(head);
+                    break;
+                case "template-params": {
+                    MapItem params = (MapItem) head;
+                    processParams(params, templateParams, allowTypedNodes);
+                    break;
+                }
+                case "tunnel-params": {
+                    MapItem params = (MapItem) head;
+                    processParams(params, tunnelParams, allowTypedNodes);
+                    break;
+                }
+                case "initial-function":
+                    initialFunction = new QName(((QNameValue) head).getStructuredQName());
+                    break;
+                case "function-params":
+                    ArrayItem functionParamsArray = (ArrayItem) head;
+                    functionParams = new XdmValue[functionParamsArray.arrayLength()];
+                    for (int i = 0; i < functionParams.length; i++) {
+                        Sequence argVal = functionParamsArray.get(i);
+                        if (!allowTypedNodes) {
+                            checkSequenceIsUntyped(argVal);
+                        }
+                        functionParams[i] = XdmValue.wrap(argVal);
+                    }
+                    break;
+                case "post-process":
+                    postProcessor = (FunctionItem) head;
+                    break;
+            }
+        }
+
+        if (baseOutputUri == null) {
+            baseOutputUri = getStaticBaseUriString();
+        } else {
+            try {
+                URI base = new URI(baseOutputUri);
+                if (!base.isAbsolute()) {
+                    base = getRetainedStaticContext().getStaticBaseUri().resolve(baseOutputUri);
+                    baseOutputUri = base.toASCIIString();
+                }
+            } catch (URISyntaxException err) {
+                throw new XPathException("Invalid base output URI " + baseOutputUri, "FOXT0002");
+            }
+        }
+
+        Deliverer deliverer = Deliverer.makeDeliverer(processor, deliveryFormat);
+        deliverer.setTransformer(transformer);
+        deliverer.setBaseOutputUri(baseOutputUri);
+        deliverer.setPrincipalResultKey(principalResultKey);
+        deliverer.setPostProcessor(postProcessor, context);
+
+        XsltController controller = transformer.getUnderlyingController();
+        controller.setResultDocumentResolver(deliverer);
+
+        Destination destination = deliverer.getPrimaryDestination(serializationParamsMap);
+        Sequence result;
+        try {
+            transformer.setStylesheetParameters(stylesheetParams);
+            transformer.setBaseOutputURI(baseOutputUri);
+            transformer.setInitialTemplateParameters(templateParams, false);
+            transformer.setInitialTemplateParameters(tunnelParams, true);
+            transformer.setResourceResolver(context.getResourceResolver());
+
+            if (schemaValidation == Validation.STRICT || schemaValidation == Validation.LAX) {
+                if (sourceNode != null) {
+                    sourceNode = validate(sourceNode, targetConfig, schemaValidation);
+                } else if (sourceLocation != null) {
+                    try {
+                        String base = getStaticBaseUriString();
+                        ResourceRequest rr = new ResourceRequest();
+                        rr.relativeUri = sourceLocation;
+                        rr.baseUri = base;
+                        rr.nature = ResourceRequest.XML_NATURE;
+                        rr.purpose = ResourceRequest.ANY_PURPOSE;
+                        try {
+                            rr.uri = ResolveURI.makeAbsolute(sourceLocation, base).toString();
+                        } catch (URISyntaxException err) {
+                            throw new XPathException("Unresolvable sourceLocation URI " + sourceLocation, "FOXT0003");
+                        }
+                        Source ss = rr.resolve(xsltCompiler.getResourceResolver(),
+                                               targetConfig.getResourceResolver(),
+                                               new DirectResourceResolver(targetConfig));
+                        ParseOptions parseOptions = targetConfig.getParseOptions()
+                                .withSchemaValidationMode(schemaValidation);
+                        TreeInfo tree = targetConfig.buildDocumentTree(ss, parseOptions);
+                        sourceNode = tree.getRootNode();
+                        sourceLocation = null;
+                    } catch (XPathException e) {
+                        e.maybeSetErrorCode("FOXT0003");
+                        throw e;
+                    }
+                }
+                if (globalContextItem instanceof XdmNode) {
+                    NodeInfo v = validate(((XdmNode)globalContextItem).getUnderlyingNode(), targetConfig, schemaValidation);
+                    globalContextItem = (XdmNode)XdmValue.wrap(v);
+                }
+            }
+
+            if (sourceNode != null && globalContextItem == null) {
+                transformer.setGlobalContextItem(new XdmNode(sourceNode.getRoot()));
+            }
+            if (globalContextItem != null) {
+                transformer.setGlobalContextItem(globalContextItem);
+            }
+            if (tracing) {
+                Object stylesheetId = options.get(styleOption);
+                targetConfig.getLogger().info("Calling fn:transform(" + (stylesheetId == null ? "" : stylesheetId.toString()) + ")");
+            }
+            if (initialTemplate != null) {
+                transformer.callTemplate(initialTemplate, destination);
+                result = deliverer.getPrimaryResult();
+            } else if (initialFunction != null) {
+                transformer.callFunction(initialFunction, functionParams, destination);
+                result = deliverer.getPrimaryResult();
+            } else {
+                if (initialMode != null) {
+                    transformer.setInitialMode(initialMode);
+                }
+                if (initialMatchSelection == null && sourceNode != null) {
+                    initialMatchSelection = XdmValue.wrap(sourceNode);
+                }
+                if (initialMatchSelection == null && sourceLocation != null) {
+                    StreamSource stream = new StreamSource(sourceLocation);
+                    if (transformer.getUnderlyingController().getInitialMode().isDeclaredStreamable()) {
+                        transformer.applyTemplates(stream, destination);
+                    } else {
+                        transformer.transform(stream,destination);
+                    }
+                    result = deliverer.getPrimaryResult();
+                } else {
+                    transformer.applyTemplates(initialMatchSelection, destination);
+                    result = deliverer.getPrimaryResult();
+                }
+            }
+            if (tracing) {
+                targetConfig.getLogger().info("Returning from fn:transform()");
+            }
+        } catch (SaxonApiException e) {
+            XPathException e2;
+            if (e.getCause() instanceof XPathException) {
+                e2 = (XPathException) e.getCause();
+                e2.setIsGlobalError(false);
+                throw e2;
+            } else {
+                throw new XPathException(e);
+            }
+        }
+
+        // Build map of secondary results
+
+        MapItem resultMap = new HashTrieMap();
+        resultMap = deliverer.populateResultMap(resultMap);
+
+        // Add primary result
+
+        if (result != null) {
+            AtomicValue resultKey = new StringValue(principalResultKey);
+            resultMap = resultMap.addEntry(resultKey, result.materialize());
+        }
+        return resultMap;
+
+    }
+
+    /**
+     * Process options such as stylesheet-params, static-params, etc
+     * @param suppliedParams an XDM map from QNames to arbitrary values
+     * @param checkedParams a Java map which on return will contain the same data, but as a Java map,
+     *                      and using s9api representations of the parameter names and values
+     * @param allowTypedNodes true if the value of the parameter is allowed to contain schema-validated
+     *                        nodes
+     * @throws XPathException for example if a parameter is supplied as a string rather than as a QName
+     */
+
+    private void processParams(MapItem suppliedParams, Map<QName, XdmValue> checkedParams, boolean allowTypedNodes) throws XPathException {
+        AtomicIterator paramIterator = suppliedParams.keys();
+        while (true) {
+            AtomicValue param = paramIterator.next();
+            if (param != null) {
+                if (!(param instanceof QNameValue)) {
+                    throw new XPathException("The names of parameters must be supplied as QNames", "FOXT0002");
+                }
+                QName paramName = new QName(((QNameValue) param).getStructuredQName());
+                Sequence value = suppliedParams.get(param);
+                if (!allowTypedNodes) {
+                    checkSequenceIsUntyped(value);
+                }
+                XdmValue paramVal = XdmValue.wrap(value);
+                checkedParams.put(paramName, paramVal);
+            } else {
+                break;
+            }
+        }
+    }
+
+    private void checkSequenceIsUntyped(Sequence value) throws XPathException {
+        SequenceIterator iter = value.iterate();
+        Item item;
+        while ((item = iter.next()) != null) {
+            if (item instanceof NodeInfo && ((NodeInfo) item).getTreeInfo().isTyped()) {
+                throw new XPathException("Schema-validated nodes cannot be passed to fn:transform() when it runs under a different Saxon Configuration", "FOXT0002");
+            }
+        }
+    }
+
+    private static NodeInfo validate(NodeInfo node, Configuration config, int validation) throws XPathException {
+        ParseOptions options = config.getParseOptions()
+                .withSchemaValidationMode(validation);
+        return config.buildDocumentTree(node.asActiveSource(), options).getRootNode();
+    }
+
+    /**
+     * Deliverer is an abstraction of the common functionality of the various delivery formats
+     */
+
+    private static abstract class Deliverer implements ResultDocumentResolver {
+
+        protected Xslt30Transformer transformer;
+        protected String baseOutputUri;
+        protected String principalResultKey;
+        protected FunctionItem postProcessor;
+        protected XPathContext context;
+        protected HashTrieMap resultMap = new HashTrieMap();
+
+        /**
+         * Factory method to construct a Deliverer for the chosen delivery format
+         *
+         * @param processor      the Saxon processor
+         * @param deliveryFormat the chosen delivery format
+         * @return an appropriate Deliverer
+         */
+        public static Deliverer makeDeliverer(Processor processor, String deliveryFormat) {
+            switch (deliveryFormat) {
+                case "document":
+                    return new DocumentDeliverer();
+                case "serialized":
+                    return new SerializedDeliverer(processor);
+                case "raw":
+                    return new RawDeliverer();
+                default:
+                    throw new IllegalArgumentException("delivery-format");
+            }
+        }
+
+        /**
+         * Supply the Transformer used for the transformation invoked by fn:transform
+         *
+         * @param transformer the Transformer
+         */
+
+        public final void setTransformer(Xslt30Transformer transformer) {
+            this.transformer = transformer;
+        }
+
+        /**
+         * Supply the key that will be used to identify the principal output document (either
+         * the base output URI, if available, or the string "output")
+         *
+         * @param key the key used in the result map to identify the principal output document.
+         */
+
+        public final void setPrincipalResultKey(String key) {
+            this.principalResultKey = key;
+        }
+
+        /**
+         * Supply the base output URI
+         *
+         * @param uri the base output URI
+         */
+
+        public final void setBaseOutputUri(String uri) {
+            this.baseOutputUri = uri;
+        }
+
+        /**
+         * Supply the function used to post-process results
+         *
+         * @param postProcessor the post-processing function, as supplied in the post-processor option,
+         *                      or an identity function otherwise
+         * @param context       the context used for evaluating the postprocessing function
+         */
+
+        public void setPostProcessor(FunctionItem postProcessor, XPathContext context) {
+            this.postProcessor = postProcessor;
+            this.context = context;
+        }
+
+        /**
+         * Helper methods for subclasses to get an absolute URI
+         *
+         * @param href    a relative URI
+         * @param baseUri the base URI
+         * @return an absolute URI formed by resolving the relative URI against the base
+         * @throws XPathException if URI resolution fails
+         */
+
+        protected URI getAbsoluteUri(String href, String baseUri) throws XPathException {
+            URI absolute;
+            try {
+                absolute = ResolveURI.makeAbsolute(href, baseUri);
+            } catch (URISyntaxException e) {
+                throw XPathException.makeXPathException(e);
+            }
+            return absolute;
+        }
+
+        /**
+         * Return a map containing information about all the secondary result documents
+         *
+         * @param resultMap a map to be populated, initially empty
+         * @return a map containing one entry for each secondary result document that has been written
+         * @throws XPathException if a failure occurs
+         */
+
+        public abstract MapItem populateResultMap(MapItem resultMap) throws XPathException;
+
+        /**
+         * Get the s9api Destination object to be used for the transformation
+         *
+         * @param serializationParamsMap the serialization parameters requested
+         * @return a suitable primaryDestination object, or null in the case of raw mode
+         * @throws XPathException if a failure occurs
+         */
+
+        public abstract Destination getPrimaryDestination(MapItem serializationParamsMap) throws XPathException;
+
+        /**
+         * Common code shared by subclasses to create a serializer
+         *
+         * @param serializationParamsMap the serialization options
+         * @return a suitable Serializer
+         */
+
+        protected Serializer makeSerializer(Processor processor, MapItem serializationParamsMap) throws XPathException {
+            Serializer serializer = processor.newSerializer();
+            if (serializationParamsMap != null) {
+                AtomicIterator paramIterator = serializationParamsMap.keys();
+                AtomicValue param;
+                while ((param = paramIterator.next()) != null) {
+                    // See bug 29440/29443. For the time being, accept both the old and new forms of serialization params
+                    QName paramName;
+                    if (param instanceof StringValue) {
+                        paramName = new QName(param.getStringValue());
+                    } else if (param instanceof QNameValue) {
+                        paramName = new QName(((QNameValue) param.head()).getStructuredQName());
+                    } else {
+                        throw new XPathException("Serialization parameters must be strings or QNames", "XPTY0004");
+                    }
+                    String paramValue = null;
+                    GroundedValue supplied = serializationParamsMap.get(param);
+                    if (supplied.getLength() > 0) {
+                        if (supplied.getLength() == 1) {
+                            Item val = supplied.itemAt(0);
+                            if (val instanceof StringValue) {
+                                paramValue = val.getStringValue();
+                            } else if (val instanceof BooleanValue) {
+                                paramValue = ((BooleanValue) val).getBooleanValue() ? "yes" : "no";
+                            } else if (val instanceof DecimalValue) {
+                                paramValue = val.getStringValue();
+                            } else if (val instanceof QNameValue) {
+                                paramValue = ((QNameValue) val).getStructuredQName().getEQName();
+                            } else if (val instanceof MapItem && paramName.getClarkName().equals(SaxonOutputKeys.USE_CHARACTER_MAPS)) {
+                                CharacterMap charMap = Serialize.toCharacterMap((MapItem) val);
+                                CharacterMapIndex charMapIndex = new CharacterMapIndex();
+                                charMapIndex.putCharacterMap(charMap.getName(), charMap);
+                                serializer.setCharacterMap(charMapIndex);
+                                String existing = serializer.getOutputProperty(Serializer.Property.USE_CHARACTER_MAPS);
+                                if (existing == null) {
+                                    serializer.setOutputProperty(Serializer.Property.USE_CHARACTER_MAPS,
+                                                                 charMap.getName().getEQName());
+                                } else {
+                                    serializer.setOutputProperty(Serializer.Property.USE_CHARACTER_MAPS,
+                                                                 existing + " " + charMap.getName().getEQName());
+                                }
+                                continue;
+                            }
+                        }
+                        if (paramValue == null) {
+                            // if more than one, the only possibility is a sequence of QNames
+                            SequenceIterator iter = supplied.iterate();
+                            Item it;
+                            paramValue = "";
+                            while ((it = iter.next()) != null) {
+                                if (it instanceof QNameValue) {
+                                    paramValue += " " + ((QNameValue) it).getStructuredQName().getEQName();
+                                } else {
+                                    throw new XPathException("Value of serialization parameter " + paramName.getEQName() + " not recognized", "XPTY0004");
+                                }
+                            }
+                        }
+                        Serializer.Property prop = Serializer.getProperty(paramName);
+                        if (paramName.getClarkName().equals(OutputKeys.CDATA_SECTION_ELEMENTS)
+                                || paramName.getClarkName().equals(SaxonOutputKeys.SUPPRESS_INDENTATION)) {
+                            String existing = serializer.getOutputProperty(paramName);
+                            if (existing == null) {
+                                serializer.setOutputProperty(prop, paramValue);
+                            } else {
+                                serializer.setOutputProperty(prop, existing + paramValue);
+                            }
+                        } else {
+                            serializer.setOutputProperty(prop, paramValue);
+                        }
+                    }
+
+                }
+            }
+            return serializer;
+        }
+
+        /**
+         * Get the primary result of the transformation, that is, the value to be included in the
+         * entry of the result map that describes the principal result tree
+         *
+         * @return the primary result, or null if there is no primary result (after post-processing if any)
+         */
+
+        public abstract Sequence getPrimaryResult() throws XPathException;
+
+        /**
+         * Post-process the result if required
+         */
+
+        public GroundedValue postProcess(String uri, Sequence result) throws XPathException {
+            if (postProcessor != null) {
+                result = postProcessor.call(context.newCleanContext(), new Sequence[]{new StringValue(uri), result});
+            }
+            return result.materialize();
+        }
+    }
+
+    /**
+     * Deliverer for delivery-format="document"
+     */
+
+    private static class DocumentDeliverer extends Deliverer {
+        private final Map<String, GroundedValue> results = new ConcurrentHashMap<>();
+        private final XdmDestination destination = new XdmDestination();
+
+        public DocumentDeliverer() {
+        }
+
+        @Override
+        public Destination getPrimaryDestination(MapItem serializationParamsMap) {
+            return destination;
+        }
+
+        @Override
+        public Sequence getPrimaryResult() throws XPathException {
+            XdmNode node = destination.getXdmNode();
+            return node == null ? null : postProcess(baseOutputUri, node.getUnderlyingNode());
+        }
+
+        @Override
+        public Receiver resolve(XPathContext context, String href, String baseUri, SerializationProperties properties) throws XPathException {
+            URI absolute = getAbsoluteUri(href, baseUri);
+            XdmDestination destination = new XdmDestination();
+            destination.setDestinationBaseURI(absolute);
+            destination.onClose(() -> {
+                try {
+                    XdmNode root = destination.getXdmNode();
+                    GroundedValue result = postProcess(absolute.toASCIIString(), root.getUnderlyingValue());
+                    results.put(absolute.toASCIIString(), result);
+                } catch (XPathException e) {
+                    throw new UncheckedXPathException(e);
+                }
+            });
+            PipelineConfiguration pipe = context.getController().makePipelineConfiguration();
+            return destination.getReceiver(pipe, properties);
+        }
+
+        @Override
+        public MapItem populateResultMap(MapItem resultMap) {
+            for (Map.Entry<String, GroundedValue> entry : results.entrySet()) {
+                String uri = entry.getKey();
+                resultMap = resultMap.addEntry(new StringValue(uri),
+                                               entry.getValue());
+            }
+            return resultMap;
+        }
+    }
+
+    /**
+     * Deliverer for delivery-format="serialized"
+     */
+
+    private static class SerializedDeliverer extends Deliverer {
+        private final Processor processor;
+        private final Map<String, GroundedValue> results = new ConcurrentHashMap<>();
+        private StringWriter primaryWriter;
+
+        public SerializedDeliverer(Processor processor) {
+            this.processor = processor;
+        }
+
+        @Override
+        public Destination getPrimaryDestination(MapItem serializationParamsMap) throws XPathException {
+            Serializer serializer = makeSerializer(processor, serializationParamsMap);
+            primaryWriter = new StringWriter();
+            serializer.setOutputWriter(primaryWriter);
+            return serializer;
+        }
+
+        @Override
+        public Sequence getPrimaryResult() throws XPathException {
+            String str = primaryWriter.toString();
+            if (str.isEmpty()) {
+                return null;
+            }
+            return postProcess(baseOutputUri, new StringValue(str));
+        }
+
+        @Override
+        public Receiver resolve(XPathContext context, String href, String baseUri, SerializationProperties properties) throws XPathException {
+            URI absolute = getAbsoluteUri(href, baseUri);
+            if (absolute.getScheme().equals(dummyBaseOutputUriScheme)) {
+                throw new XPathException("The location of output documents is undefined: use the transform option base-output-uri", "FOXT0002");
+            }
+            StringWriter writer = new StringWriter();
+            Serializer serializer = makeSerializer(processor, null);
+            serializer.setCharacterMap(properties.getCharacterMapIndex());
+            serializer.setOutputWriter(writer);
+            serializer.onClose(() -> {
+                try {
+                    GroundedValue result = postProcess(absolute.toASCIIString(), new StringValue(writer.toString()));
+                    results.put(absolute.toASCIIString(), result);
+                } catch (XPathException e) {
+                    throw new UncheckedXPathException(e);
+                }
+            });
+            try {
+                PipelineConfiguration pipe = context.getController().makePipelineConfiguration();
+                Receiver out = serializer.getReceiver(pipe, properties);
+                out.setSystemId(absolute.toASCIIString());
+                return out;
+            } catch (SaxonApiException e) {
+                throw XPathException.makeXPathException(e);
+            }
+        }
+
+        @Override
+        public MapItem populateResultMap(MapItem resultMap) {
+            for (Map.Entry<String, GroundedValue> entry : results.entrySet()) {
+                String uri = entry.getKey();
+                resultMap = resultMap.addEntry(new StringValue(uri),
+                                               entry.getValue());
+            }
+            return resultMap;
+        }
+    }
+
+    private static class RawDeliverer extends Deliverer {
+        private final Map<String, GroundedValue> results = new ConcurrentHashMap<>();
+        private final RawDestination primaryDestination = new RawDestination();
+
+        public RawDeliverer() {
+        }
+
+        @Override
+        public Destination getPrimaryDestination(MapItem serializationParamsMap) {
+            return primaryDestination;
+        }
+
+        @Override
+        public Sequence getPrimaryResult() throws XPathException {
+            Sequence actualResult = primaryDestination.getXdmValue().getUnderlyingValue();
+            return postProcess(baseOutputUri, actualResult);
+        }
+
+        @Override
+        public Receiver resolve(XPathContext context, String href, String baseUri, SerializationProperties properties) throws XPathException {
+            URI absolute = getAbsoluteUri(href, baseUri);
+            RawDestination destination = new RawDestination();
+            destination.onClose(() -> {
+                try {
+                    destination.close();
+                    GroundedValue result = postProcess(absolute.toASCIIString(), destination.getXdmValue().getUnderlyingValue());
+                    results.put(absolute.toASCIIString(), result);
+                } catch (XPathException e) {
+                    throw new UncheckedXPathException(e);
+                }
+            });
+            PipelineConfiguration pipe = context.getController().makePipelineConfiguration();
+            return destination.getReceiver(pipe, properties);
+        }
+
+        @Override
+        public MapItem populateResultMap(MapItem resultMap) {
+            for (Map.Entry<String, GroundedValue> entry : results.entrySet()) {
+                String uri = entry.getKey();
+                resultMap = resultMap.addEntry(new StringValue(uri),
+                                               entry.getValue());
+            }
+            return resultMap;
+        }
+    }
+}

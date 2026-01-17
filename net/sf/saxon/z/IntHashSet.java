@@ -1,0 +1,374 @@
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018-2023 Saxonica Limited
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+package net.sf.saxon.z;
+
+
+import java.util.Arrays;
+
+/**
+ * Set of int values. This class is modelled on the java.net.Set interface, but it does
+ * not implement this interface, because the set members are nint's rather than Objects.
+ * <p>Not thread safe.</p>
+ *
+ * @author Dominique Devienne
+ * @author Michael Kay: retrofitted to JDK 1.4, added iterator()
+ */
+public class IntHashSet extends IntSet {
+
+    private static final int NBIT = 30; // MAX_SIZE = 2^NBIT
+
+    /**
+     * The maximum number of elements this container can contain.
+     */
+    private static final int MAX_SIZE = 1 << NBIT; // maximum number of keys mapped
+
+    /**
+     * This set's NO-DATA-VALUE.
+     */
+    private final int ndv;
+
+    // private
+
+    //private double _factor; // 0.0 <= _factor <= 1.0 - changed by MHK to assume factor = 0.25
+    private int _nmax; // 0 <= _nmax = 2^nbit <= 2^NBIT = MAX_SIZE
+    private int _size; // 0 <= _size <= _nmax <= MAX_SIZE
+    private int _nlo; // _nmax*_factor (_size<=_nlo, if possible)
+    private int _nhi; //  MAX_SIZE*_factor (_size< _nhi, if possible)
+    private int _shift; // _shift = 1 + NBIT - nbit (see function hash() below)
+    private int _mask; // _mask = _nmax - 1
+    private int[] _values; // array[_nmax] of values
+
+
+    /**
+     * Initializes a set with a capacity of 8 and a load factor of 0,25.
+     */
+    public IntHashSet() {
+        this(8, Integer.MIN_VALUE);
+    }
+
+    /**
+     * Initializes a set with the given capacity and a load factor of 0,25.
+     *
+     * @param capacity the initial capacity.
+     */
+    public IntHashSet(int capacity) {
+        this(capacity, Integer.MIN_VALUE);
+    }
+
+    /**
+     * Initializes a set with a load factor of 0,25.
+     *
+     * @param capacity    the initial capacity.
+     * @param noDataValue the value to use for non-values.
+     */
+    public IntHashSet(int capacity, int noDataValue) {
+        ndv = noDataValue;
+        //_factor = 0.25;
+        setCapacity(capacity);
+    }
+
+    @Override
+    public IntSet copy() {
+        if (_size == 0) {
+            return IntEmptySet.getInstance();
+        } else {
+            IntHashSet s = new IntHashSet(_size, ndv);
+            s._nmax = _nmax;
+            s._size = _size;
+            s._nlo = _nlo;
+            s._nhi = _nhi;
+            s._shift = _shift;
+            s._mask = _mask;
+            s._values = new int[_values.length];
+            System.arraycopy(_values, 0, s._values, 0, _values.length);
+            return s;
+        }
+    }
+
+    @Override
+    public IntSet mutableCopy() {
+        return copy();
+    }
+
+    @Override
+    public void clear() {
+        _size = 0;
+        for (int i = 0; i < _nmax; ++i) {
+            _values[i] = ndv;
+        }
+    }
+
+    @Override
+    public int size() {
+        return _size;
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return _size == 0;
+    }
+
+    public int[] getValues() {
+        int index = 0;
+        final int[] values = new int[_size];
+        for (int _value : _values) {
+            if (_value != ndv) {
+                values[index++] = _value;
+            }
+        }
+        return values;
+    }
+
+
+    @Override
+    public boolean contains(int value) {
+        return (_values[indexOf(value)] != ndv);
+    }
+
+
+    @Override
+    public boolean remove(int value) {
+        // Knuth, v. 3, 527, Algorithm R.
+        int i = indexOf(value);
+        if (_values[i] == ndv) {
+            return false;
+        }
+        --_size;
+        for (; ; ) {
+            _values[i] = ndv;
+            int j = i;
+            int r;
+            do {
+                i = (i - 1) & _mask;
+                if (_values[i] == ndv) {
+                    return true;
+                }
+                r = hash(_values[i]);
+            } while ((i <= r && r < j) || (r < j && j < i) || (j < i && i <= r));
+            _values[j] = _values[i];
+        }
+    }
+
+
+    @Override
+    public boolean add(int value) {
+        if (value == ndv) {
+            throw new IllegalArgumentException("Can't add the 'no data' value");
+        }
+        int i = indexOf(value);
+        if (_values[i] == ndv) {
+            ++_size;
+            _values[i] = value;
+
+            // Check new size
+            if (_size > MAX_SIZE) {
+                throw new RuntimeException("Too many elements (> " + MAX_SIZE + ')');
+            }
+            if (_nlo < _size && _size <= _nhi) {
+                setCapacity(_size);
+            }
+            return true;
+        } else {
+            return false; // leave set unchanged
+        }
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+
+    private int hash(int key) {
+        // Knuth, v. 3, 509-510. Randomize the 31 low-order bits of c*key
+        // and return the highest nbits (where nbits <= 30) bits of these.
+        // The constant c = 1327217885 approximates 2^31 * (sqrt(5)-1)/2.
+        return ((1327217885 * key) >> _shift) & _mask;
+    }
+
+    /**
+     * Gets the index of the value, if it exists, or the index at which
+     * this value would be added if it does not exist yet.
+     */
+    private int indexOf(int value) {
+        int i = hash(value);
+        while (_values[i] != ndv) {
+            if (_values[i] == value) {
+                return i;
+            }
+            i = (i - 1) & _mask;
+        }
+        return i;
+    }
+
+    private void setCapacity(int capacity) {
+        // Changed MHK in 8.9 to use a constant factor of 0.25, thus avoiding floating point arithmetic
+        if (capacity < _size) {
+            capacity = _size;
+        }
+        //double factor = 0.25;
+        int nbit, nmax;
+        for (nbit = 1, nmax = 2; nmax < capacity * 4 && nmax < MAX_SIZE; ++nbit, nmax *= 2) {
+            // do nothing
+        }
+        int nold = _nmax;
+        if (nmax == nold) {
+            return;
+        }
+
+        _nmax = nmax;
+        _nlo = nmax / 4;
+        _nhi = MAX_SIZE / 4;
+        _shift = 1 + NBIT - nbit;
+        _mask = nmax - 1;
+
+        _size = 0;
+        int[] values = _values;
+        _values = new int[nmax];
+        Arrays.fill(_values, ndv); // empty all values
+        if (values != null) {
+            for (int i = 0; i < nold; ++i) {
+                int value = values[i];
+                if (value != ndv) {
+                    // Don't use add, because the capacity is necessarily large enough,
+                    // and the value is necessarily unique (since in this set already)!
+                    //add(values[i]);
+                    ++_size;
+                    _values[indexOf(value)] = value;
+                }
+            }
+        }
+    }
+
+    /**
+     * Get an iterator over the values
+     */
+
+    @Override
+    public IntIterator iterator() {
+        return new IntHashSetIterator(this);
+    }
+
+
+    /**
+     * Test if one set has overlapping membership with another set
+     *
+     * @param one the first set
+     * @param two the second set
+     * @return true if the sets overlap
+     */
+
+    public static boolean containsSome(IntSet one, IntSet two) {
+        if (two instanceof IntEmptySet) {
+            return false;
+        }
+        if (two instanceof IntUniversalSet) {
+            return !one.isEmpty();
+        }
+        if (two instanceof IntComplementSet) {
+            return !((IntComplementSet) two).getExclusions().containsAll(one);
+        }
+        IntIterator it = two.iterator();
+        while (it.hasNext()) {
+            if (one.contains(it.next())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Test whether this set has exactly the same members as another set
+     *
+     * @param other the other set
+     */
+
+    public boolean equals(Object other) {
+        if (other instanceof IntSet) {
+            IntHashSet s = (IntHashSet) other;
+            return (size() == s.size() && containsAll(s));
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Construct a hash key that supports the equals() test
+     */
+
+    public int hashCode() {
+        // Note, hashcodes are the same as those used by IntArraySet
+        int h = 936247625;
+        IntIterator it = iterator();
+        while (it.hasNext()) {
+            h += it.next();
+        }
+        return h;
+    }
+
+    public String toString() {
+        return stringify(iterator());
+    }
+
+    public static String stringify(IntIterator it) {
+        StringBuilder sb = new StringBuilder(100);
+        while (it.hasNext()) {
+            if (sb.length() == 0) {
+                sb.append(it.next());
+            } else {
+                sb.append(' ').append(it.next());
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Create an IntHashSet with supplied integer members
+     * @param members the members to be added to the IntHashSet
+     * @return the IntHashSet containing these integer value
+     */
+
+    public static IntHashSet of(int... members) {
+        IntHashSet is = new IntHashSet(members.length);
+        for (int i: members) {
+            is.add(i);
+        }
+        return is;
+    }
+
+    /**
+     * Iterator class
+     * @implNote implemented as a static inner class for ease of conversion to C#
+     */
+
+    private static class IntHashSetIterator implements IntIterator {
+
+        private final IntHashSet container;
+        private int i;
+
+        IntHashSetIterator(IntHashSet container) {
+            this.container = container;
+            i = 0;
+        }
+
+        @Override
+        public boolean hasNext() {
+            while (i < container._values.length) {
+                if (container._values[i] != container.ndv) {
+                    return true;
+                } else {
+                    i++;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public int next() {
+            return container._values[i++];
+        }
+    }
+
+}
+
