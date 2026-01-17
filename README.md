@@ -20,7 +20,7 @@ The source code is intended to match Saxon-HE upstream. Any deviating functional
 mvn package
 ```
 
-The JAR will be in `target/Saxon-HE-fork-12.9-SNAPSHOT.jar`.
+The JAR will be in `target/Saxon-HE-fork-<version>.jar`.
 
 ## Testing
 
@@ -36,6 +36,18 @@ This repository includes a test suite which Saxon-HE does not provide:
 For official releases and support, use the [official Saxonica repository](https://github.com/Saxonica/Saxon-HE).
 
 Saxon is developed by [Saxonica](https://www.saxonica.com/).
+
+## Releases
+
+Pre-built JARs are available from [GitHub Releases](https://github.com/vivainio/Saxon-HE-fork/releases).
+
+### Versioning
+
+This fork uses the format `X.Y.Z` where:
+- `X.Y` matches the upstream Saxon-HE version (e.g., `12.9`)
+- `Z` is the fork release number (e.g., `1`, `2`, `3`)
+
+For example, `12.9.1` is the first release of this fork based on Saxon-HE 12.9.
 
 ## License
 
