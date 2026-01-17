@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data>
+    <source>input.xml</source>
+    <pi name="custom-instruction" value="data=test"/>
+</data>

@@ -1,0 +1,1 @@
+<result><foo:element xmlns:foo="http://example.com/foo">Hello</foo:element><bar:element xmlns:bar="http://example.com/bar">World</bar:element></result>

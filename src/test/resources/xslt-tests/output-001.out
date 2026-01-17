@@ -1,0 +1,1 @@
+<result><code><![CDATA[if (x < 5 && y > 3) { alert("test"); }]]></code><text>Hello World</text><inline>Some <b>inline</b> content</inline></result>

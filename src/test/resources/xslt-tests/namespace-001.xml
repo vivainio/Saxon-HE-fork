@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data>
+    <ns prefix="foo" uri="http://example.com/foo" value="Hello"/>
+    <ns prefix="bar" uri="http://example.com/bar" value="World"/>
+</data>

@@ -186,4 +186,81 @@
         <source>merge-001.xml</source>
         <expected>merge-001.out</expected>
     </test>
+
+    <!-- XSLT 3.0: Message -->
+    <test name="message-001" description="xsl:message for debugging output">
+        <stylesheet>message-001.xsl</stylesheet>
+        <source>message-001.xml</source>
+        <expected>message-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Next-match -->
+    <test name="next-match-001" description="xsl:next-match template chaining">
+        <stylesheet>next-match-001.xsl</stylesheet>
+        <source>next-match-001.xml</source>
+        <expected>next-match-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Break -->
+    <test name="break-001" description="xsl:break early exit from iterate">
+        <stylesheet>break-001.xsl</stylesheet>
+        <source>break-001.xml</source>
+        <expected>break-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: On-empty and on-non-empty -->
+    <test name="on-empty-001" description="xsl:on-empty and xsl:on-non-empty">
+        <stylesheet>on-empty-001.xsl</stylesheet>
+        <source>on-empty-001.xml</source>
+        <expected>on-empty-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Sequence -->
+    <test name="sequence-001" description="xsl:sequence returning values">
+        <stylesheet>sequence-001.xsl</stylesheet>
+        <source>sequence-001.xml</source>
+        <expected>sequence-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Namespace -->
+    <test name="namespace-001" description="xsl:namespace dynamic creation">
+        <stylesheet>namespace-001.xsl</stylesheet>
+        <source>namespace-001.xml</source>
+        <expected>namespace-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Processing-instruction and comment -->
+    <test name="pi-comment-001" description="xsl:processing-instruction and xsl:comment">
+        <stylesheet>pi-comment-001.xsl</stylesheet>
+        <source>pi-comment-001.xml</source>
+        <expected>pi-comment-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Version check and error handling -->
+    <test name="fallback-001" description="system-property version check with try/catch">
+        <stylesheet>fallback-001.xsl</stylesheet>
+        <source>fallback-001.xml</source>
+        <expected>fallback-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Character maps -->
+    <test name="character-map-001" description="xsl:character-map substitution">
+        <stylesheet>character-map-001.xsl</stylesheet>
+        <source>character-map-001.xml</source>
+        <expected>character-map-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Shadow attributes -->
+    <test name="shadow-attr-001" description="Shadow attributes (_attr syntax)">
+        <stylesheet>shadow-attr-001.xsl</stylesheet>
+        <source>shadow-attr-001.xml</source>
+        <expected>shadow-attr-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Output options -->
+    <test name="output-001" description="xsl:output CDATA and serialization">
+        <stylesheet>output-001.xsl</stylesheet>
+        <source>output-001.xml</source>
+        <expected>output-001.out</expected>
+    </test>
 </test-catalog>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data>
+    <item name="normal1"/>
+    <item name="special1" special="true"/>
+    <item name="normal2"/>
+    <item name="special2" special="true"/>
+</data>
