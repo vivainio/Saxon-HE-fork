@@ -12,6 +12,8 @@ Saxon-HE is released under the [Mozilla Public License 2.0](LICENSE), which perm
 
 Saxonica only provides source code as zip files without version history or tests. This repository aims to make it easier to work with the codebase and build your own version.
 
+The source code is intended to match Saxon-HE upstream. Any deviating functionality will be maintained in separate repositories.
+
 ## Building
 
 ```bash
