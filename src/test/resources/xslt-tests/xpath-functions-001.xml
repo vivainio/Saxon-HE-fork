@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data>
+    <text>hello world</text>
+    <num>10</num>
+    <num>20</num>
+    <num>30</num>
+    <item>a</item>
+    <item>b</item>
+    <item>c</item>
+</data>

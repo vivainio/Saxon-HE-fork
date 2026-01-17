@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<people>
+    <person name="Alice" city="London"/>
+    <person name="Bob" city="Paris"/>
+    <person name="Carol" city="London"/>
+    <person name="Dave" city="Paris"/>
+</people>

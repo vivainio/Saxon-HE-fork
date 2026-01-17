@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<test-catalog>
+    <test name="apply-templates-001" description="Basic apply-templates">
+        <stylesheet>apply-templates-001.xsl</stylesheet>
+        <source>apply-templates-001.xml</source>
+        <expected>apply-templates-001.out</expected>
+    </test>
+    <test name="for-each-001" description="Basic for-each iteration">
+        <stylesheet>for-each-001.xsl</stylesheet>
+        <source>for-each-001.xml</source>
+        <expected>for-each-001.out</expected>
+    </test>
+    <test name="for-each-group-001" description="Group by value">
+        <stylesheet>for-each-group-001.xsl</stylesheet>
+        <source>for-each-group-001.xml</source>
+        <expected>for-each-group-001.out</expected>
+    </test>
+    <test name="variable-001" description="Variable declaration and use">
+        <stylesheet>variable-001.xsl</stylesheet>
+        <source>variable-001.xml</source>
+        <expected>variable-001.out</expected>
+    </test>
+    <test name="function-001" description="User-defined function">
+        <stylesheet>function-001.xsl</stylesheet>
+        <source>function-001.xml</source>
+        <expected>function-001.out</expected>
+    </test>
+    <test name="template-match-001" description="Template matching with predicates">
+        <stylesheet>template-match-001.xsl</stylesheet>
+        <source>template-match-001.xml</source>
+        <expected>template-match-001.out</expected>
+    </test>
+    <test name="xpath-functions-001" description="XPath 3.1 functions">
+        <stylesheet>xpath-functions-001.xsl</stylesheet>
+        <source>xpath-functions-001.xml</source>
+        <expected>xpath-functions-001.out</expected>
+    </test>
+</test-catalog>
