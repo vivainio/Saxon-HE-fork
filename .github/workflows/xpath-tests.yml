@@ -1,0 +1,37 @@
+name: XPath Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  xpath-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Clone W3C QT3 test suite
+        run: git clone --depth 1 https://github.com/w3c/qt3tests.git src/test/resources/qt3tests
+
+      - name: Run XPath tests
+        run: mvn -B test -Dtest=QT3XPathTest
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "### XPath Test Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f target/surefire-reports/net.sf.saxon.QT3XPathTest.txt ]; then
+            head -5 target/surefire-reports/net.sf.saxon.QT3XPathTest.txt >> $GITHUB_STEP_SUMMARY
+          fi

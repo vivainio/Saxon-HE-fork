@@ -20,8 +20,8 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build with Maven
-        run: mvn -B package --file pom.xml
+      - name: Build and test
+        run: mvn -B package -Dtest="!QT3XPathTest" --file pom.xml
 
       - name: Upload JAR
         uses: actions/upload-artifact@v4
