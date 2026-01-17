@@ -36,7 +36,9 @@ public class Main implements Callable<Integer> {
         @Option(names = {"--deep"}, description = "Deep check: also attempt transform to catch runtime errors (e.g., unknown extensions)")
         boolean deep,
         @Option(names = {"--mocks"}, description = "JSON file with mock extension function definitions")
-        Path mocksFile
+        Path mocksFile,
+        @Option(names = {"--ignore-extension-elements"}, description = "Treat unknown extension elements (e.g., <service:init/>) as warnings, not errors")
+        boolean ignoreExtensionElements
     ) throws Exception {
         Processor processor = new Processor(false);
 
@@ -47,8 +49,10 @@ public class Main implements Callable<Integer> {
         XsltCompiler compiler = processor.newXsltCompiler();
 
         int errors = 0;
+        int warnings = 0;
         int checked = 0;
         int skipped = 0;
+        int[] result;  // [0] = error (0 or 1), [1] = warning (0 or 1)
 
         if (Files.isDirectory(path)) {
             int maxDepth = recursive ? Integer.MAX_VALUE : 1;
@@ -68,19 +72,27 @@ public class Main implements Callable<Integer> {
                     skipped++;
                     continue;
                 }
-                errors += checkFile(processor, compiler, file, deep) ? 0 : 1;
+                result = checkFile(processor, compiler, file, deep, ignoreExtensionElements);
+                errors += result[0];
+                warnings += result[1];
                 checked++;
             }
         } else {
-            errors += checkFile(processor, compiler, path, deep) ? 0 : 1;
+            result = checkFile(processor, compiler, path, deep, ignoreExtensionElements);
+            errors += result[0];
+            warnings += result[1];
             checked++;
         }
 
-        if (skipped > 0) {
-            System.out.printf("%nChecked %d file(s), %d error(s), %d skipped (fragments)%n", checked, errors, skipped);
-        } else {
-            System.out.printf("%nChecked %d file(s), %d error(s)%n", checked, errors);
+        StringBuilder summary = new StringBuilder();
+        summary.append(String.format("%nChecked %d file(s), %d error(s)", checked, errors));
+        if (warnings > 0) {
+            summary.append(String.format(", %d warning(s)", warnings));
         }
+        if (skipped > 0) {
+            summary.append(String.format(", %d skipped (fragments)", skipped));
+        }
+        System.out.println(summary);
         return errors > 0 ? 1 : 0;
     }
 
@@ -104,21 +116,23 @@ public class Main implements Callable<Integer> {
         return fragments;
     }
 
+    private Set<String> ignoredElements = new HashSet<>();
+
     /**
      * Register mock extension functions from a JSON file.
      * JSON format:
      * {
      *   "namespace-uri": {
-     *     "functionName": returnValue,
+     *     "_elements": ["init", "otherElement"],  // optional: list of extension elements to ignore
+     *     "functionName": returnValue,            // mock function returns
      *     ...
      *   },
      *   ...
      * }
      * Where returnValue can be: null, true, false, number, or "string"
      *
-     * Note: This only mocks extension FUNCTIONS (XPath calls like ns:func()).
-     * Extension ELEMENTS (XSLT instructions like <ns:init/>) cannot be easily
-     * mocked in Saxon and will still fail during deep checks.
+     * The "_elements" array lists extension element local names that should be
+     * treated as warnings instead of errors during deep checks.
      */
     private void registerMocks(Processor processor, Path mocksFile) throws Exception {
         String json = Files.readString(mocksFile);
@@ -127,17 +141,32 @@ public class Main implements Callable<Integer> {
         // Simple JSON parsing for our specific format
         Pattern nsPattern = Pattern.compile("\"([^\"]+)\"\\s*:\\s*\\{([^}]+)\\}");
         Pattern fnPattern = Pattern.compile("\"([^\"]+)\"\\s*:\\s*(null|true|false|\"[^\"]*\"|[-+]?\\d+\\.?\\d*)");
+        Pattern elemListPattern = Pattern.compile("\"_elements\"\\s*:\\s*\\[([^\\]]+)\\]");
+        Pattern elemNamePattern = Pattern.compile("\"([^\"]+)\"");
 
         Matcher nsMatcher = nsPattern.matcher(json);
         int mockCount = 0;
 
         while (nsMatcher.find()) {
             String namespace = nsMatcher.group(1);
-            String functions = nsMatcher.group(2);
+            String content = nsMatcher.group(2);
 
-            Matcher fnMatcher = fnPattern.matcher(functions);
+            // Check for _elements: ["elem1", "elem2"] directive
+            Matcher elemListMatcher = elemListPattern.matcher(content);
+            if (elemListMatcher.find()) {
+                String elemList = elemListMatcher.group(1);
+                Matcher elemNameMatcher = elemNamePattern.matcher(elemList);
+                while (elemNameMatcher.find()) {
+                    ignoredElements.add(elemNameMatcher.group(1));
+                }
+            }
+
+            Matcher fnMatcher = fnPattern.matcher(content);
             while (fnMatcher.find()) {
                 String funcName = fnMatcher.group(1);
+                if (funcName.startsWith("_")) {
+                    continue;  // Skip directives like _elements
+                }
                 String valueStr = fnMatcher.group(2);
 
                 Object value = parseJsonValue(valueStr);
@@ -146,8 +175,9 @@ public class Main implements Callable<Integer> {
             }
         }
 
-        if (mockCount > 0) {
-            System.out.printf("Registered %d mock extension function(s)%n", mockCount);
+        if (mockCount > 0 || !ignoredElements.isEmpty()) {
+            System.out.printf("Registered %d mock function(s), %d ignored element(s)%n",
+                mockCount, ignoredElements.size());
         }
     }
 
@@ -193,7 +223,11 @@ public class Main implements Callable<Integer> {
         return "<_/>";
     }
 
-    private boolean checkFile(Processor processor, XsltCompiler compiler, Path file, boolean deep) {
+    private static final int[] OK = {0, 0};
+    private static final int[] ERROR = {1, 0};
+    private static final int[] WARNING = {0, 1};
+
+    private int[] checkFile(Processor processor, XsltCompiler compiler, Path file, boolean deep, boolean ignoreExtensionElements) {
         try {
             XsltExecutable executable = compiler.compile(new StreamSource(file.toFile()));
 
@@ -208,10 +242,36 @@ public class Main implements Callable<Integer> {
             }
 
             System.out.println("OK: " + file);
-            return true;
+            return OK;
         } catch (SaxonApiException e) {
-            System.err.println("FAIL: " + file);
             String msg = e.getMessage();
+            // Check if this is an extension element error that should be treated as warning
+            if (msg != null && msg.contains("Unknown extension instruction")) {
+                boolean shouldIgnore = ignoreExtensionElements;
+                String localName = null;
+                // Extract element name from error: "Unknown extension instruction <prefix:localname>"
+                Pattern p = Pattern.compile("<([^:>]+:)?([^>]+)>");
+                Matcher m = p.matcher(msg);
+                if (m.find()) {
+                    localName = m.group(2);
+                    if (!shouldIgnore && !ignoredElements.isEmpty()) {
+                        shouldIgnore = ignoredElements.contains(localName);
+                    }
+                }
+                if (shouldIgnore) {
+                    System.out.println("WARN (extension element): " + file);
+                    System.out.println("  " + msg);
+                    return WARNING;
+                }
+                // Show hint about adding to mocks
+                System.err.println("FAIL: " + file);
+                System.err.println("  " + msg);
+                if (localName != null) {
+                    System.err.println("  Hint: to ignore this element, add \"" + localName + "\" to _elements array in mocks JSON");
+                }
+                return ERROR;
+            }
+            System.err.println("FAIL: " + file);
             if (msg != null) {
                 System.err.println("  " + msg);
             }
@@ -219,11 +279,11 @@ public class Main implements Callable<Integer> {
             if (cause != null && cause.getMessage() != null && !cause.getMessage().equals(msg)) {
                 System.err.println("  " + cause.getMessage());
             }
-            return false;
+            return ERROR;
         } catch (Exception e) {
             System.err.println("FAIL: " + file);
             System.err.println("  " + e.getClass().getSimpleName() + ": " + e.getMessage());
-            return false;
+            return ERROR;
         }
     }
 
