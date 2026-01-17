@@ -21,10 +21,19 @@ jobs:
           cache: maven
 
       - name: Build and test
-        run: mvn -B package -Dtest="!QT3XPathTest" --file pom.xml
+        run: mvn -B install -Dtest="!QT3XPathTest" --file pom.xml
+
+      - name: Build saxx tool
+        run: mvn -B package -f tools/saxx/pom.xml
 
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
           name: saxon-he-fork
           path: target/*.jar
+
+      - name: Upload saxx JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: saxx
+          path: tools/saxx/target/saxx.jar

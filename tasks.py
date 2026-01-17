@@ -13,13 +13,15 @@ def c(cmd: str) -> None:
 
 
 def do_build(args) -> None:
-    """Build Saxon-HE JAR file"""
-    c("mvn package -DskipTests")
+    """Build Saxon-HE JAR and saxx tool"""
+    c("mvn install -DskipTests")
+    c("mvn -f tools/saxx/pom.xml package")
 
 
 def do_clean(args) -> None:
     """Remove build artifacts"""
     c("mvn clean")
+    c("mvn -f tools/saxx/pom.xml clean")
 
 
 def main():
