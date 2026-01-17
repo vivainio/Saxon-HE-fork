@@ -28,7 +28,10 @@ The JAR will be in `target/Saxon-HE-fork-12.9-SNAPSHOT.jar`.
 mvn test
 ```
 
-This repository includes a test suite based on [W3C XSLT 3.0 test patterns](https://github.com/w3c/xslt30-test), which Saxon-HE does not provide. Tests cover core XSLT functionality and XSLT 3.0 features including maps, arrays, try/catch, xsl:iterate, and JSON processing.
+This repository includes a test suite which Saxon-HE does not provide:
+
+- **XSLT tests** based on [W3C XSLT 3.0 test patterns](https://github.com/w3c/xslt30-test) - covers core XSLT functionality and XSLT 3.0 features including maps, arrays, try/catch, xsl:iterate, and JSON processing
+- **XPath tests** from [W3C QT3 test suite](https://github.com/w3c/qt3tests) - 2600+ XPath function tests (cloned on demand)
 
 For official releases and support, use the [official Saxonica repository](https://github.com/Saxonica/Saxon-HE).
 
