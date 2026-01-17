@@ -10,7 +10,7 @@ There is no promise of compatibility, usability, or maintenance. This repository
 
 Saxon-HE is released under the [Mozilla Public License 2.0](LICENSE), which permits this kind of redistribution and modification.
 
-Saxonica publishes Saxon-HE source code as zip files within their [GitHub repository](https://github.com/Saxonica/Saxon-HE), without version control history. This fork was created to provide a proper Git history for tracking changes.
+Saxonica only provides source code as zip files without version history or tests. This repository aims to make it easier to work with the codebase.
 
 For official releases and support, use the [official Saxonica repository](https://github.com/Saxonica/Saxon-HE).
 
