@@ -45,3 +45,6 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# QT3 test suite (cloned on demand)
+src/test/resources/qt3tests/
