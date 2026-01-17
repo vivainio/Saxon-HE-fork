@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <test-catalog>
+    <!-- Basic XSLT -->
     <test name="apply-templates-001" description="Basic apply-templates">
         <stylesheet>apply-templates-001.xsl</stylesheet>
         <source>apply-templates-001.xml</source>
@@ -34,5 +35,92 @@
         <stylesheet>xpath-functions-001.xsl</stylesheet>
         <source>xpath-functions-001.xml</source>
         <expected>xpath-functions-001.out</expected>
+    </test>
+
+    <!-- Control flow -->
+    <test name="choose-001" description="xsl:choose/when/otherwise">
+        <stylesheet>choose-001.xsl</stylesheet>
+        <source>choose-001.xml</source>
+        <expected>choose-001.out</expected>
+    </test>
+    <test name="sort-001" description="xsl:sort numeric">
+        <stylesheet>sort-001.xsl</stylesheet>
+        <source>sort-001.xml</source>
+        <expected>sort-001.out</expected>
+    </test>
+
+    <!-- Keys and indexing -->
+    <test name="key-001" description="xsl:key and key() function">
+        <stylesheet>key-001.xsl</stylesheet>
+        <source>key-001.xml</source>
+        <expected>key-001.out</expected>
+    </test>
+
+    <!-- Copying and identity -->
+    <test name="copy-001" description="Identity transform with filtering">
+        <stylesheet>copy-001.xsl</stylesheet>
+        <source>copy-001.xml</source>
+        <expected>copy-001.out</expected>
+    </test>
+
+    <!-- Numbering -->
+    <test name="number-001" description="xsl:number formatting">
+        <stylesheet>number-001.xsl</stylesheet>
+        <source>number-001.xml</source>
+        <expected>number-001.out</expected>
+    </test>
+
+    <!-- Modes -->
+    <test name="mode-001" description="Template modes">
+        <stylesheet>mode-001.xsl</stylesheet>
+        <source>mode-001.xml</source>
+        <expected>mode-001.out</expected>
+    </test>
+
+    <!-- Dynamic construction -->
+    <test name="attribute-001" description="xsl:element and xsl:attribute">
+        <stylesheet>attribute-001.xsl</stylesheet>
+        <source>attribute-001.xml</source>
+        <expected>attribute-001.out</expected>
+    </test>
+
+    <!-- String analysis -->
+    <test name="analyze-string-001" description="xsl:analyze-string regex">
+        <stylesheet>analyze-string-001.xsl</stylesheet>
+        <source>analyze-string-001.xml</source>
+        <expected>analyze-string-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Maps and Arrays -->
+    <test name="map-001" description="XPath 3.1 maps">
+        <stylesheet>map-001.xsl</stylesheet>
+        <source>map-001.xml</source>
+        <expected>map-001.out</expected>
+    </test>
+    <test name="array-001" description="XPath 3.1 arrays">
+        <stylesheet>array-001.xsl</stylesheet>
+        <source>array-001.xml</source>
+        <expected>array-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Error handling -->
+    <test name="try-catch-001" description="xsl:try/catch error handling">
+        <stylesheet>try-catch-001.xsl</stylesheet>
+        <source>try-catch-001.xml</source>
+        <expected>try-catch-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Iteration -->
+    <test name="iterate-001" description="xsl:iterate with accumulator">
+        <stylesheet>iterate-001.xsl</stylesheet>
+        <source>iterate-001.xml</source>
+        <expected>iterate-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: JSON -->
+    <test name="json-001" description="parse-json and map access">
+        <stylesheet>json-001.xsl</stylesheet>
+        <source>json-001.xml</source>
+        <expected>json-001.out</expected>
     </test>
 </test-catalog>

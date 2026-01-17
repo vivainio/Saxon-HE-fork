@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<company>
+    <employee name="Alice" dept="sales"/>
+    <employee name="Bob" dept="engineering"/>
+    <employee name="Carol" dept="sales"/>
+    <employee name="Dave" dept="engineering"/>
+</company>
