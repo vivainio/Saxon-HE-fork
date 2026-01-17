@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<employees>
+    <employee>
+        <first>John</first>
+        <last>Smith</last>
+    </employee>
+    <employee>
+        <first>Jane</first>
+        <last>Doe</last>
+    </employee>
+</employees>

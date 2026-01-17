@@ -1,0 +1,1 @@
+<settings><param name="timeout" type="integer">30</param><param name="debug" type="boolean">true</param><param name="host" type="string">localhost</param></settings>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<calculations>
+    <calc expr="2 + 3"/>
+    <calc expr="10 * 5"/>
+    <calc expr="string-length('hello')"/>
+</calculations>

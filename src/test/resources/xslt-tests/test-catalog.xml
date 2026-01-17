@@ -123,4 +123,67 @@
         <source>json-001.xml</source>
         <expected>json-001.out</expected>
     </test>
+
+    <!-- XSLT 3.0: Text value templates -->
+    <test name="text-value-template-001" description="expand-text with curly braces">
+        <stylesheet>text-value-template-001.xsl</stylesheet>
+        <source>text-value-template-001.xml</source>
+        <expected>text-value-template-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Higher-order functions -->
+    <test name="higher-order-001" description="for-each, filter, fold-left functions">
+        <stylesheet>higher-order-001.xsl</stylesheet>
+        <source>higher-order-001.xml</source>
+        <expected>higher-order-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Accumulators -->
+    <test name="accumulator-001" description="xsl:accumulator running total">
+        <stylesheet>accumulator-001.xsl</stylesheet>
+        <source>accumulator-001.xml</source>
+        <expected>accumulator-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Dynamic evaluation -->
+    <test name="evaluate-001" description="xsl:evaluate dynamic XPath">
+        <stylesheet>evaluate-001.xsl</stylesheet>
+        <source>evaluate-001.xml</source>
+        <expected>evaluate-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Conditional output -->
+    <test name="where-populated-001" description="xsl:where-populated">
+        <stylesheet>where-populated-001.xsl</stylesheet>
+        <source>where-populated-001.xml</source>
+        <expected>where-populated-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Assertions -->
+    <test name="assert-001" description="xsl:assert validation">
+        <stylesheet>assert-001.xsl</stylesheet>
+        <source>assert-001.xml</source>
+        <expected>assert-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Context item declaration -->
+    <test name="context-item-001" description="xsl:context-item type declaration">
+        <stylesheet>context-item-001.xsl</stylesheet>
+        <source>context-item-001.xml</source>
+        <expected>context-item-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Modular stylesheets -->
+    <test name="include-001" description="xsl:include with functions and templates">
+        <stylesheet>include-001.xsl</stylesheet>
+        <source>include-001.xml</source>
+        <expected>include-001.out</expected>
+    </test>
+
+    <!-- XSLT 3.0: Merge -->
+    <test name="merge-001" description="xsl:merge sorted inputs">
+        <stylesheet>merge-001.xsl</stylesheet>
+        <source>merge-001.xml</source>
+        <expected>merge-001.out</expected>
+    </test>
 </test-catalog>

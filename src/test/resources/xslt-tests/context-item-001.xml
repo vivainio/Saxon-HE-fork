@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config>
+    <setting name="timeout" type="integer">30</setting>
+    <setting name="debug" type="boolean">true</setting>
+    <setting name="host" type="string">localhost</setting>
+</config>

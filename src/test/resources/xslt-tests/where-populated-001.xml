@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<products>
+    <product>
+        <name>Widget</name>
+        <description>A useful widget</description>
+    </product>
+    <product>
+        <name>Gadget</name>
+        <description/>
+    </product>
+    <product>
+        <name>Thing</name>
+    </product>
+</products>

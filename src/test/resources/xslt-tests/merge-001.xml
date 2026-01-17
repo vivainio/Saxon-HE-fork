@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data>
+    <list1>
+        <item id="1">A</item>
+        <item id="3">C</item>
+        <item id="5">E</item>
+    </list1>
+    <list2>
+        <item id="2">B</item>
+        <item id="3">C2</item>
+        <item id="4">D</item>
+    </list2>
+</data>

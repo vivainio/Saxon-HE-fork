@@ -1,0 +1,1 @@
+<results><result expr="2 + 3">5</result><result expr="10 * 5">50</result><result expr="string-length('hello')">5</result></results>
