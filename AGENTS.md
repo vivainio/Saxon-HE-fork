@@ -8,6 +8,11 @@
 
 This is a fork of the Saxon XSLT processor. Changes to the core Saxon source code should only be made when explicitly requested by the user, as they may complicate future upstream merges.
 
+**All changes to upstream Saxon code MUST be documented in [ENHANCEMENTS.md](ENHANCEMENTS.md)** with:
+- Purpose of the change
+- Files modified (with paths)
+- Design/implementation details
+
 ## Safe to Modify
 
 - `tools/saxx/` - The saxx CLI tool built on top of Saxon

@@ -218,9 +218,18 @@ public class StyleNodeFactory implements NodeFactory {
             // such as extension-element-prefixes.
 
             boolean extensionElement = isExtensionNamespace(uri, parent, namespaces, attlist);
+            boolean factoryProvided = false;  // Fork enhancement: track if factory created the element
             if (temp == null) {
                 if (extensionElement) {
-                    temp = new AbsentExtensionElement();
+                    // Fork enhancement: check for registered extension element factory
+                    ExtensionElementFactory factory = config.getExtensionElementFactory(uri.toString());
+                    if (factory != null) {
+                        temp = factory.makeExtensionElement(localname);
+                        factoryProvided = (temp != null);
+                    }
+                    if (temp == null) {
+                        temp = new AbsentExtensionElement();
+                    }
                 } else {
                     temp = new LiteralResultElement();
                 }
@@ -238,7 +247,8 @@ public class StyleNodeFactory implements NodeFactory {
                 //reason = new XmlProcessingIncident("Unknown XSLT element: " + Err.wrap(localname, Err.ELEMENT), "XTSE0010");
                 //temp.setValidationError(reason, StyleElement.OnFailure.REPORT_STATICALLY_UNLESS_FALLBACK_AVAILABLE);
 
-            } else if (extensionElement) {
+            } else if (extensionElement && !factoryProvided) {
+                // Fork enhancement: skip error for factory-provided elements
 
                 // if we can't instantiate an extension element, we don't give up
                 // immediately, because there might be an xsl:fallback defined. We

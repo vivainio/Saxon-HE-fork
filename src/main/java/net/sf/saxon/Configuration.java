@@ -200,6 +200,8 @@ public class Configuration implements SourceResolver, NotationSet {
     private final Map<String, String> fileExtensions = new HashMap<>();
     private final Map<String, ResourceFactory> resourceFactoryMapping = new HashMap<>();
     private final Map<NamespaceUri, FunctionAnnotationHandler> functionAnnotationHandlers = new HashMap<>();
+    // Fork enhancement: extension element factory support (see ENHANCEMENTS.md)
+    private final Map<String, ExtensionElementFactory> extensionElementFactories = new HashMap<>();
     private int regexBacktrackingLimit = 10000000;
 
     private final TreeStatistics treeStatistics = new TreeStatistics();
@@ -4003,12 +4005,35 @@ public class Configuration implements SourceResolver, NotationSet {
      * Ask whether an extension element with a particular name is available
      *
      * @param qName the extension element name
-     * @return false (always, in the case of Saxon-HE)
+     * @return true if a factory is registered for the namespace, false otherwise
      * @since 9.7
      */
 
     public boolean isExtensionElementAvailable(StructuredQName qName) {
-        return false;
+        // Fork enhancement: check registered extension element factories
+        return extensionElementFactories.containsKey(qName.getNamespaceUri().toString());
+    }
+
+    /**
+     * Register an extension element factory for a namespace.
+     * Fork enhancement - see ENHANCEMENTS.md
+     *
+     * @param namespaceUri the namespace URI for extension elements
+     * @param factory the factory to create StyleElement instances
+     */
+    public void registerExtensionElementFactory(String namespaceUri, ExtensionElementFactory factory) {
+        extensionElementFactories.put(namespaceUri, factory);
+    }
+
+    /**
+     * Get the extension element factory for a namespace, if registered.
+     * Fork enhancement - see ENHANCEMENTS.md
+     *
+     * @param namespaceUri the namespace URI
+     * @return the factory, or null if none registered
+     */
+    public ExtensionElementFactory getExtensionElementFactory(String namespaceUri) {
+        return extensionElementFactories.get(namespaceUri);
     }
 
 
