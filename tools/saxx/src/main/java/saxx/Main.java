@@ -235,6 +235,10 @@ public class Main implements Callable<Integer> {
                 // Attempt a transform with minimal input to catch runtime errors
                 String minimalXml = findMinimalXml(file);
                 Xslt30Transformer transformer = executable.load30();
+                // Suppress error output if we have ignored elements (we'll handle errors ourselves)
+                if (!ignoredElements.isEmpty() || ignoreExtensionElements) {
+                    transformer.setErrorReporter(err -> {});  // Suppress Saxon's error output
+                }
                 ByteArrayOutputStream devNull = new ByteArrayOutputStream();
                 Serializer serializer = processor.newSerializer(devNull);
                 StreamSource minimalInput = new StreamSource(new StringReader(minimalXml));
@@ -259,9 +263,9 @@ public class Main implements Callable<Integer> {
                     }
                 }
                 if (shouldIgnore) {
-                    System.out.println("WARN (extension element): " + file);
-                    System.out.println("  " + msg);
-                    return WARNING;
+                    // Silently pass - element is mocked/ignored
+                    System.out.println("OK: " + file);
+                    return OK;
                 }
                 // Show hint about adding to mocks
                 System.err.println("FAIL: " + file);
@@ -294,12 +298,23 @@ public class Main implements Callable<Integer> {
         @Parameters(paramLabel = "INPUT", description = "Input XML file")
         Path input,
         @Option(names = {"-o", "--output"}, description = "Output file (stdout if omitted)")
-        Path output
+        Path output,
+        @Option(names = {"--trace"}, description = "Trace XSLT execution (node, instruction, location)")
+        boolean trace
     ) throws Exception {
         Processor processor = new Processor(false);
+
+        if (trace) {
+            processor.getUnderlyingConfiguration().setCompileWithTracing(true);
+        }
+
         XsltCompiler compiler = processor.newXsltCompiler();
         XsltExecutable executable = compiler.compile(new StreamSource(stylesheet.toFile()));
         Xslt30Transformer transformer = executable.load30();
+
+        if (trace) {
+            transformer.setTraceListener(new CompactTraceListener(System.err));
+        }
 
         Serializer serializer = output != null
             ? processor.newSerializer(output.toFile())
@@ -307,6 +322,78 @@ public class Main implements Callable<Integer> {
 
         transformer.transform(new StreamSource(input.toFile()), serializer);
         return 0;
+    }
+
+    @Command(name = "map", description = "Extract all XPath paths and values from XML")
+    int map(
+        @Parameters(paramLabel = "INPUT", description = "Input XML file")
+        Path input,
+        @Option(names = {"--include-text"}, description = "Include text nodes")
+        boolean includeText,
+        @Option(names = {"--include-attrs"}, description = "Include attributes (default: true)", defaultValue = "true", negatable = true)
+        boolean includeAttrs
+    ) throws Exception {
+        Processor processor = new Processor(false);
+        DocumentBuilder builder = processor.newDocumentBuilder();
+        XdmNode doc = builder.build(input.toFile());
+
+        System.out.println("# XPath mapping for: " + input.getFileName());
+        System.out.println("# xpath\ttype\tvalue");
+
+        walkNode(doc, includeText, includeAttrs);
+        return 0;
+    }
+
+    private void walkNode(XdmNode node, boolean includeText, boolean includeAttrs) {
+        net.sf.saxon.om.NodeInfo info = node.getUnderlyingNode();
+        String xpath = net.sf.saxon.tree.util.Navigator.getPath(info);
+        int kind = info.getNodeKind();
+
+        // Output this node
+        if (kind == net.sf.saxon.type.Type.ELEMENT) {
+            String directText = getDirectTextContent(node);
+            System.out.printf("%s\telem\t%s%n", xpath, truncate(directText, 80));
+
+            // Output attributes
+            if (includeAttrs) {
+                for (XdmNode attr : node.children()) {
+                    // No direct way to iterate attrs in s9api, use underlying
+                }
+                net.sf.saxon.om.AttributeMap attrs = info.attributes();
+                for (net.sf.saxon.om.AttributeInfo attr : attrs) {
+                    String attrPath = xpath + "/@" + attr.getNodeName().getLocalPart();
+                    System.out.printf("%s\tattr\t%s%n", attrPath, truncate(attr.getValue(), 80));
+                }
+            }
+        } else if (kind == net.sf.saxon.type.Type.TEXT && includeText) {
+            String val = info.getStringValue().trim();
+            if (!val.isEmpty()) {
+                System.out.printf("%s\ttext\t%s%n", xpath, truncate(val, 80));
+            }
+        } else if (kind == net.sf.saxon.type.Type.DOCUMENT) {
+            // Skip document node output, just recurse
+        }
+
+        // Recurse to children (elements only in s9api iteration)
+        for (XdmNode child : node.children()) {
+            walkNode(child, includeText, includeAttrs);
+        }
+    }
+
+    private String getDirectTextContent(XdmNode elem) {
+        StringBuilder sb = new StringBuilder();
+        for (XdmNode child : elem.children()) {
+            if (child.getUnderlyingNode().getNodeKind() == net.sf.saxon.type.Type.TEXT) {
+                sb.append(child.getStringValue());
+            }
+        }
+        return sb.toString().trim().replaceAll("\\s+", " ");
+    }
+
+    private String truncate(String s, int max) {
+        if (s == null || s.isEmpty()) return "";
+        if (s.length() <= max) return s;
+        return s.substring(0, max - 3) + "...";
     }
 
     @Override
