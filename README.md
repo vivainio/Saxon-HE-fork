@@ -10,7 +10,7 @@ Saxon-HE is released under the [Mozilla Public License 2.0](LICENSE), which perm
 
 Saxonica only provides source code as zip files without version history or tests. This repository aims to make it easier to work with the codebase and build your own version.
 
-The source code is intended to match Saxon-HE upstream. Any deviating functionality will be maintained in separate repositories, with the exception of tests, scripts, and documentation.
+The source code is intended to track Saxon-HE upstream closely. Where this fork adds new functionality, each change is documented in [ENHANCEMENTS.md](ENHANCEMENTS.md) (which indexes per-feature pages under [`docs/enhancements/`](docs/enhancements/)).
 
 ## Building
 
@@ -53,5 +53,6 @@ Saxon-HE is released under the [Mozilla Public License 2.0](LICENSE).
 
 ## Documentation
 
+- [Fork enhancements](ENHANCEMENTS.md) — features added on top of upstream Saxon-HE
 - [Saxonica Documentation](https://www.saxonica.com/documentation12/documentation.xml)
 - [Official Saxon-HE Repository](https://github.com/Saxonica/Saxon-HE)
