@@ -1,58 +1,29 @@
 # Saxon-HE Fork Enhancements
 
-This document tracks all modifications made to upstream Saxon-HE source code.
+This document indexes all modifications made to upstream Saxon-HE source
+code. Each enhancement has its own page under [`docs/enhancements/`](docs/enhancements/)
+with full design notes, file lists, usage examples, and tests.
 
-## Extension Element Factory Support
+## Index
 
-**Status:** Implemented
-
-**Purpose:** Allow registration of custom extension element handlers, enabling mocked or real implementations of extension elements like `<service:init/>`.
-
-**Files modified:**
-- `src/main/java/net/sf/saxon/style/ExtensionElementFactory.java` - New interface for creating extension elements
-- `src/main/java/net/sf/saxon/style/NoOpExtensionElement.java` - No-op implementation for ignoring elements
-- `src/main/java/net/sf/saxon/Configuration.java` - Added factory registration (lines 203-204, 4012-4037)
-- `src/main/java/net/sf/saxon/style/StyleNodeFactory.java` - Use registered factories (lines 221-232, 250-251)
-
-**Usage:**
-
-```java
-// Register a no-op handler for all elements in a namespace
-Configuration config = processor.getUnderlyingConfiguration();
-config.registerExtensionElementFactory("xalan://com.example.extensions",
-    localName -> new NoOpExtensionElement());
-
-// Register a custom handler for specific elements
-config.registerExtensionElementFactory("http://example.com/ext",
-    localName -> {
-        if ("init".equals(localName)) {
-            return new MyInitElement();
-        }
-        return new NoOpExtensionElement();  // default for others
-    });
-```
-
-**Design:**
-1. `ExtensionElementFactory` interface with `makeExtensionElement(String localName)` method
-2. `Configuration` stores a `Map<String, ExtensionElementFactory>` for namespace -> factory
-3. `StyleNodeFactory.makeElementNode()` checks for registered factory before creating `AbsentExtensionElement`
-4. If factory returns non-null, the element is used without setting a validation error
-5. `NoOpExtensionElement` provides a simple no-op implementation that compiles to null
-
-**Tests:**
-- `src/test/java/net/sf/saxon/ExtensionElementFactoryTest.java` - 8 tests covering registration, no-op elements, multiple namespaces, and error cases
-
----
+| Enhancement | Status | Doc |
+|---|---|---|
+| Extension Element Factory Support | Implemented | [extension-element-factory.md](docs/enhancements/extension-element-factory.md) |
+| Dynamic Evaluate Extension Functions (`sk:evaluate`, `saxon:evaluate`) | Implemented | [dynamic-evaluate.md](docs/enhancements/dynamic-evaluate.md) |
 
 ## How to Document New Enhancements
 
-When modifying upstream Saxon code:
+When modifying upstream Saxon code or adding fork-only features:
 
-1. Add a section to this file describing:
-   - Purpose of the change
-   - Files modified (with paths and line numbers)
-   - Usage examples
-   - Design/implementation details
-2. Keep changes minimal and focused
-3. Prefer adding new methods over modifying existing ones
-4. Mark changes in code with comments like `// Fork enhancement: ...`
+1. Add a new page under `docs/enhancements/<short-slug>.md` describing:
+   - Purpose of the change.
+   - Files added / modified (with paths and line numbers where helpful).
+   - Usage examples.
+   - Design / implementation details, including any surprises that future
+     maintainers should know about.
+2. Add a one-line entry to the **Index** table above.
+3. Keep code changes minimal and focused.
+4. Prefer adding new files / new methods over modifying existing ones —
+   it dramatically reduces upstream-merge friction.
+5. Mark in-code changes to existing upstream files with comments like
+   `// Fork enhancement: ...` so they're greppable.
