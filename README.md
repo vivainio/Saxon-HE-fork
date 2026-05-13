@@ -4,9 +4,7 @@ Saxon-HE (Home Edition) is an open-source XSLT 3.0, XQuery 3.1, and XPath 3.1 pr
 
 ## Disclaimer
 
-**This is an unauthorized fork for experimental purposes only.**
-
-There is no promise of compatibility, usability, or maintenance. This repository is based on a snapshot of Saxon-HE 12.9 and may or may not have a life of its own.
+This is an unofficial community fork. There is no promise of compatibility, usability, or maintenance, and it is not affiliated with or endorsed by Saxonica. The repository is based on a snapshot of Saxon-HE 12.9 and may or may not have a life of its own.
 
 Saxon-HE is released under the [Mozilla Public License 2.0](LICENSE), which permits this kind of redistribution and modification.
 
