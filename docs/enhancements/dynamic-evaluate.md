@@ -61,6 +61,33 @@ EvaluateExtensions.registerOn(processor);
 </xsl:stylesheet>
 ```
 
+## Why use these instead of `<xsl:evaluate>`?
+
+The XSLT 3.0 `<xsl:evaluate>` instruction already covers dynamic XPath
+compilation and is supported by this fork. The function forms exist
+alongside it because:
+
+- **Existing stylesheets.** Large bodies of legacy XSL already call
+  `sk:evaluate(...)` or `saxon:evaluate(...)`. They can run unchanged on
+  HE without rewriting.
+- **Composable in any XPath context.** `<xsl:evaluate>` is an
+  instruction — only valid inside a sequence constructor. The function
+  forms work inside predicates, function arguments, and `select`
+  expressions: `sum(items/saxon:evaluate(@formula))`,
+  `rows[sk:evaluate(@filter)]`, etc.
+- **Works in any XSLT version.** `<xsl:evaluate>` is XSLT 3.0 only.
+  Stylesheets declaring `version="1.0"` or `version="2.0"` literally
+  cannot use the instruction; the function forms work wherever extension
+  functions are supported.
+- **Lighter syntax for the common case.** When you just want to evaluate
+  a stored string and use the value, a one-token function call is
+  shorter than the multi-attribute instruction.
+
+Prefer `<xsl:evaluate>` when you control the stylesheet, can target
+XSLT 3.0, and need its richer feature set: `with-param` injection,
+explicit `context-item`, explicit `namespace-context`, or
+schema-awareness.
+
 ## Limitations
 
 - **No static-namespace-context inheritance** from the calling expression.
