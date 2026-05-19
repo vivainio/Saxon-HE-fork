@@ -44,11 +44,12 @@ All under namespace `http://expath.org/ns/file`. Conventional prefix
 | `file:size` | `($path) as xs:integer` | |
 | `file:last-modified` | `($path) as xs:dateTime` | |
 | `file:read-text` | `($path) / ($path, $enc)` | Default UTF-8 |
+| `file:read-text-lines` | `($path) / ($path, $enc) as xs:string*` | Default UTF-8 |
 | `file:read-binary` | `($path) as xs:base64Binary` | |
 | `file:write-text` | `($path, $value) / ($path, $value, $enc)` | Creates parents |
 | `file:write-binary` | `($path, $value as xs:base64Binary)` | Creates parents |
 | `file:append-text` | `($path, $value) / ($path, $value, $enc)` | Creates parents |
-| `file:list` | `($dir) as xs:string*` | Directory entries get trailing `/` per spec |
+| `file:list` | `($dir) / ($dir, $recursive) / ($dir, $recursive, $glob) as xs:string*` | Paths relative to `$dir`. Directory entries get trailing `/` per spec. Glob via `FileSystem.getPathMatcher("glob:…")` — `*.xml` matches one segment, `**.xml` matches across descendants. |
 | `file:create-dir` | `($dir)` | Recursive (`mkdir -p` semantics) |
 | `file:delete` | `($path) / ($path, $recursive as xs:boolean)` | |
 | `file:copy` | `($src, $dst)` | Recursive for directories; overwrites |
@@ -182,12 +183,6 @@ catch file:not-found { 'absent' }
 Intentionally out of scope for this best-effort implementation. PRs
 welcome, but none are blocking common use cases:
 
-- **`file:list` filtering and recursion.** Only the 1-arity form
-  (non-recursive, no glob) is implemented. For now, do recursive walks
-  via XSLT/XQuery recursion over `file:list`, or filter with
-  `ends-with` / `matches` on the returned strings.
-- **`file:read-text-lines`.** Use `tokenize(file:read-text(...),
-  '\r?\n')` until this is added.
 - **`file:base-dir`** is not implemented; it requires resolving against
   the XQuery/XSLT static base URI, which the current scaffolding
   doesn't thread through. `file:current-dir` (JVM `user.dir`) is

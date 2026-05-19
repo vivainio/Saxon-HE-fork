@@ -31,6 +31,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
@@ -123,6 +124,7 @@ public final class ExpathFileFunctions {
         install(config, new Size(), policy);
         install(config, new LastModified(), policy);
         install(config, new ReadText(), policy);
+        install(config, new ReadTextLines(), policy);
         install(config, new ReadBinary(), policy);
         install(config, new WriteText(), policy);
         install(config, new WriteBinary(), policy);
@@ -315,6 +317,24 @@ public final class ExpathFileFunctions {
         }
     }
 
+    private static final class ReadTextLines extends FileFn {
+        @Override protected String localName() { return "read-text-lines"; }
+        @Override protected SequenceType[] args() {
+            return new SequenceType[]{SequenceType.SINGLE_STRING, SequenceType.SINGLE_STRING};
+        }
+        @Override protected int minArgs() { return 1; }
+        @Override protected SequenceType result() { return SequenceType.STRING_SEQUENCE; }
+        @Override protected Sequence eval(Sequence[] a, XPathContext c) throws XPathException {
+            Path p = path(str(a[0]));
+            Charset cs = charset(strOrNull(a, 1));
+            try {
+                List<StringValue> lines = new ArrayList<>();
+                for (String line : Files.readAllLines(p, cs)) lines.add(new StringValue(line));
+                return new ZeroOrMore<>(lines);
+            } catch (IOException e) { throw ioErr(p.toString(), e); }
+        }
+    }
+
     private static final class ReadBinary extends FileFn {
         @Override protected String localName() { return "read-binary"; }
         @Override protected SequenceType[] args() { return new SequenceType[]{SequenceType.SINGLE_STRING}; }
@@ -390,18 +410,34 @@ public final class ExpathFileFunctions {
 
     private static final class ListDir extends FileFn {
         @Override protected String localName() { return "list"; }
-        @Override protected SequenceType[] args() { return new SequenceType[]{SequenceType.SINGLE_STRING}; }
+        @Override protected SequenceType[] args() {
+            return new SequenceType[]{
+                    SequenceType.SINGLE_STRING,
+                    SequenceType.SINGLE_BOOLEAN,
+                    SequenceType.SINGLE_STRING};
+        }
+        @Override protected int minArgs() { return 1; }
         @Override protected SequenceType result() { return SequenceType.STRING_SEQUENCE; }
         @Override protected Sequence eval(Sequence[] a, XPathContext c) throws XPathException {
             Path dir = path(str(a[0]));
             if (!Files.isDirectory(dir)) {
                 throw err("no-dir", "Not a directory: " + dir);
             }
+            boolean recursive = a.length > 1 && ((BooleanValue) a[1].head()).getBooleanValue();
+            PathMatcher matcher = null;
+            if (a.length > 2) {
+                matcher = dir.getFileSystem().getPathMatcher("glob:" + str(a[2]));
+            }
             List<StringValue> names = new ArrayList<>();
-            try (Stream<Path> children = Files.list(dir)) {
-                children.forEach(child -> {
-                    String name = child.getFileName().toString();
-                    if (Files.isDirectory(child)) name += "/";
+            String sep = dir.getFileSystem().getSeparator();
+            try (Stream<Path> walk = recursive ? Files.walk(dir) : Files.list(dir)) {
+                final PathMatcher fMatcher = matcher;
+                walk.forEach(child -> {
+                    if (child.equals(dir)) return;
+                    Path rel = dir.relativize(child);
+                    if (fMatcher != null && !fMatcher.matches(rel)) return;
+                    String name = rel.toString();
+                    if (Files.isDirectory(child)) name += sep;
                     names.add(new StringValue(name));
                 });
             } catch (IOException e) { throw ioErr(dir.toString(), e); }

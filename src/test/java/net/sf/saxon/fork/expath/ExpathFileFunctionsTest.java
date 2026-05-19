@@ -124,6 +124,54 @@ class ExpathFileFunctionsTest {
     }
 
     @Test
+    void listDirRecursive() throws Exception {
+        Files.writeString(tmp.resolve("a.txt"), "");
+        Files.createDirectory(tmp.resolve("sub"));
+        Files.writeString(tmp.resolve("sub/b.txt"), "");
+        XdmValue flat = eval("file:list('" + p(".") + "', false())");
+        assertEquals(2, flat.size());
+        XdmValue deep = eval("file:list('" + p(".") + "', true())");
+        // a.txt, sub/, sub/b.txt
+        assertEquals(3, deep.size());
+    }
+
+    @Test
+    void listDirWithGlob() throws Exception {
+        Files.writeString(tmp.resolve("keep.xml"), "");
+        Files.writeString(tmp.resolve("skip.txt"), "");
+        Files.createDirectory(tmp.resolve("sub"));
+        Files.writeString(tmp.resolve("sub/nested.xml"), "");
+        XdmValue xmlOnly = eval("file:list('" + p(".") + "', true(), '**.xml')");
+        // keep.xml + sub/nested.xml
+        assertEquals(2, xmlOnly.size());
+        for (XdmItem i : xmlOnly) {
+            assertTrue(i.getStringValue().endsWith(".xml"));
+        }
+    }
+
+    @Test
+    void readTextLines() throws Exception {
+        String path = p("lines.txt");
+        Files.writeString(tmp.resolve("lines.txt"), "alpha\nbeta\ngamma\n");
+        XdmValue lines = eval("file:read-text-lines('" + path + "')");
+        assertEquals(3, lines.size());
+        assertEquals("alpha", lines.itemAt(0).getStringValue());
+        assertEquals("beta", lines.itemAt(1).getStringValue());
+        assertEquals("gamma", lines.itemAt(2).getStringValue());
+    }
+
+    @Test
+    void readTextLinesWithEncoding() throws Exception {
+        String path = p("latin-lines.txt");
+        Files.write(tmp.resolve("latin-lines.txt"),
+                "café\nrésumé\n".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+        XdmValue lines = eval("file:read-text-lines('" + path + "', 'ISO-8859-1')");
+        assertEquals(2, lines.size());
+        assertEquals("café", lines.itemAt(0).getStringValue());
+        assertEquals("résumé", lines.itemAt(1).getStringValue());
+    }
+
+    @Test
     void createAndDeleteDir() throws Exception {
         eval("file:create-dir('" + p("a/b/c") + "')");
         assertTrue(Files.isDirectory(tmp.resolve("a/b/c")));
