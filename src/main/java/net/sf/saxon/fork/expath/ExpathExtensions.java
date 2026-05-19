@@ -18,14 +18,18 @@ import javax.xml.transform.TransformerException;
  * Currently wires up:
  * <ul>
  *   <li>EXPath File module ({@code http://expath.org/ns/file}) — native
- *       implementation in {@link ExpathFileFunctions}. Pure Java, no
- *       third-party dependencies.</li>
+ *       implementation in {@link ExpathFileFunctions}.</li>
+ *   <li>EXPath Binary module ({@code http://expath.org/ns/binary}) — native
+ *       implementation in {@link ExpathBinaryFunctions}.</li>
+ *   <li>EXPath Archive (ZIP) module ({@code http://expath.org/ns/archive}) —
+ *       native implementation in {@link ExpathArchiveFunctions}.</li>
+ *   <li>EXPath Crypto hash + HMAC subset ({@code http://expath.org/ns/crypto})
+ *       — native implementation in {@link ExpathCryptoFunctions}.</li>
  * </ul>
  *
- * The HTTP-client, binary, and archive modules are intentionally <em>not</em>
- * bundled here: they require external jars (or have no maintained Saxon-12
- * OSS binding) and would bloat the fat-jar. Callers who want those modules
- * can wire them in separately against this Saxon HE fork.
+ * <p>All modules are pure Java, no third-party dependencies. The HTTP-client
+ * module is intentionally <em>not</em> bundled — it has a larger surface
+ * (multipart, auth, response dispatching) and is left for a future pass.</p>
  */
 public final class ExpathExtensions {
 
@@ -39,7 +43,10 @@ public final class ExpathExtensions {
      */
     public static int registerAll(Configuration config) {
         ExpathFileFunctions.register(config);
-        return 1;
+        ExpathBinaryFunctions.register(config);
+        ExpathArchiveFunctions.register(config);
+        ExpathCryptoFunctions.register(config);
+        return 4;
     }
 
     /**
