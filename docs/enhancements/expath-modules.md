@@ -180,6 +180,17 @@ Functions operate on `xs:base64Binary` for binary data throughout
 (matching the spec). `xs:hexBinary` is also accepted as input wherever
 binary is taken. Integer offsets are zero-based.
 
+> **Note — "base64Binary" is not encoded data.** XDM's binary atomic
+> types (`xs:base64Binary`, `xs:hexBinary`) wrap a raw `byte[]`
+> internally; the "base64" / "hex" in the name refers only to the
+> *lexical* form you get when you serialize one to a string. A pipeline
+> like `file:read-binary → bin:part → crypto:hash → arch:create →
+> file:write-binary` passes the same `byte[]` end-to-end with no encode
+> / decode steps. You only pay the 33 % base64 inflation if you
+> explicitly stringify (e.g. `string($bytes)`) or embed the value in
+> XML. `bin:hex-string` and `bin:bin-string` are the convenience
+> escape hatches for when you do want the text form.
+
 ### Functions
 
 All under namespace `http://expath.org/ns/binary`. Conventional prefix
