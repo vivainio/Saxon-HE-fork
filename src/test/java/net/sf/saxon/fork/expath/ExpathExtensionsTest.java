@@ -20,7 +20,7 @@ class ExpathExtensionsTest {
         Processor processor = new Processor(false);
         Configuration config = processor.getUnderlyingConfiguration();
         int n = ExpathExtensions.registerAll(config);
-        assertEquals(1, n, "expected file module to register");
+        assertEquals(4, n, "expected file, binary, archive, crypto modules to register");
     }
 
     @Test
