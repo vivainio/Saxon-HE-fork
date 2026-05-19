@@ -42,6 +42,7 @@ public class Main implements Callable<Integer> {
     ) throws Exception {
         Processor processor = new Processor(false);
         net.sf.saxon.extensions.evaluate.EvaluateExtensions.registerOn(processor);
+        net.sf.saxon.extensions.xquery.QueryExtensions.registerOn(processor);
 
         if (mocksFile != null) {
             registerMocks(processor, mocksFile);
@@ -305,6 +306,7 @@ public class Main implements Callable<Integer> {
     ) throws Exception {
         Processor processor = new Processor(false);
         net.sf.saxon.extensions.evaluate.EvaluateExtensions.registerOn(processor);
+        net.sf.saxon.extensions.xquery.QueryExtensions.registerOn(processor);
 
         if (trace) {
             processor.getUnderlyingConfiguration().setCompileWithTracing(true);
