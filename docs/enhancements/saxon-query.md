@@ -18,13 +18,24 @@ a thin extension-function wrapper around it.
 
 ```
 saxon:query($query as xs:string) as item()*
-saxon:query($query as xs:string, $context as item()?) as item()*
+saxon:query($query as xs:string,
+            $context as item()?) as item()*
+saxon:query($query as xs:string,
+            $context as item()?,
+            $bindings as map(xs:string, item()*)?) as item()*
 ```
 
 - One-argument form: compiles and evaluates `$query` using the caller's
   current context item (if any).
 - Two-argument form: evaluates `$query` against an explicit `$context`
   item. Pass `()` to evaluate with no context item.
+- Three-argument form: also binds external variables in the query. Each
+  map entry becomes a `declare variable $... external` binding. Keys are
+  resolved as lexical QNames against the **calling expression's static
+  namespace context** (so a `xmlns:foo="..."` in scope on the stylesheet
+  applies to a key like `"foo:bar"`). Unprefixed keys map to the
+  no-namespace; EQName syntax `"Q{uri}local"` is also accepted. This
+  matches Saxon-EE's convention.
 
 ## Files added
 
@@ -37,8 +48,10 @@ No existing Saxonica source files are modified.
   — public `registerOn(Processor)` helper.
 - `src/main/java/net/sf/saxon/extensions/xquery/package-info.java`
 - `src/test/java/net/sf/saxon/extensions/xquery/QueryExtensionsTest.java`
-  — 5 tests covering arithmetic, FLWOR, implicit context item, explicit
-  context item, and XQuery direct element constructors.
+  — 9 tests covering arithmetic, FLWOR, implicit/explicit context item,
+  direct element constructors, and four bindings-map cases (no-namespace
+  keys, prefixed keys inheriting the caller's namespace context, EQName
+  keys, and node-valued bindings).
 
 ## Files modified
 
@@ -69,6 +82,18 @@ QueryExtensions.registerOn(processor);
 </xsl:stylesheet>
 ```
 
+With external-variable bindings:
+
+```xml
+<xsl:value-of select="saxon:query(
+    'declare variable $x external;
+     declare variable $y external;
+     $x * $y',
+    .,
+    map { 'x' : 6, 'y' : 7 })"/>
+<!-- → 42 -->
+```
+
 ## Why use this instead of `saxon:evaluate()` / `<xsl:evaluate>`?
 
 `saxon:evaluate()` and `<xsl:evaluate>` compile **XPath** expressions.
@@ -87,15 +112,12 @@ Prefer `<xsl:evaluate>` when an XPath expression suffices; reach for
 
 ## Limitations
 
-- **No external-variable / parameter map.** Saxon-EE's `saxon:query()`
-  accepts a third `map(xs:string, item()*)` argument that binds
-  external variables in the query. That form is not implemented here;
-  encode parameters into the query string instead, or build the query
-  with a small wrapper that calls `XQueryEvaluator.setExternalVariable`
-  directly.
-- **No static-namespace-context inheritance** from the calling
-  expression. Queries must declare any prefixes they use in their own
-  prolog or use `local-name()`-style patterns.
+- **No static-namespace-context inheritance for the query body itself.**
+  Queries must declare any prefixes they use in their own prolog
+  (`declare namespace ...`) or use `local-name()`-style patterns. The
+  caller's namespace context *is* used for resolving the keys of the
+  `$bindings` map (see signatures above), but it does not flow into the
+  compiled query.
 
 ## Design notes
 

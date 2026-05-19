@@ -83,6 +83,73 @@ class QueryExtensionsTest {
     }
 
     @Test
+    void bindingsMapNoNamespace() throws Exception {
+        // Unprefixed key → no-namespace external variable.
+        String xsl = SAXON_HEADER +
+                "<xsl:template match='/'><r>" +
+                "<xsl:value-of select=\"saxon:query(" +
+                "  'declare variable $x external; $x * 10', " +
+                "  ., " +
+                "  map { 'x' : 7 })\"/>" +
+                "</r></xsl:template>" +
+                "</xsl:stylesheet>";
+        String out = run(xsl, "<x/>");
+        assertTrue(out.contains(">70</r>"), "Expected 70, got: " + out);
+    }
+
+    @Test
+    void bindingsMapInheritsNamespace() throws Exception {
+        // Prefixed key 'p:n' resolved against the *caller's* namespace
+        // context (xmlns:p declared on the stylesheet element).
+        String xsl = "<xsl:stylesheet version='3.0' " +
+                "xmlns:xsl='http://www.w3.org/1999/XSL/Transform' " +
+                "xmlns:saxon='http://saxon.sf.net/' " +
+                "xmlns:p='http://example.com/p'>" +
+                "<xsl:template match='/'><r>" +
+                "<xsl:value-of select=\"saxon:query(" +
+                "  'declare namespace p = ''http://example.com/p''; " +
+                "   declare variable $p:n external; $p:n + 1', " +
+                "  ., " +
+                "  map { 'p:n' : 41 })\"/>" +
+                "</r></xsl:template>" +
+                "</xsl:stylesheet>";
+        String out = run(xsl, "<x/>");
+        assertTrue(out.contains(">42</r>"), "Expected 42, got: " + out);
+    }
+
+    @Test
+    void bindingsMapEQName() throws Exception {
+        // EQName syntax in the key works without any prefix declaration.
+        String xsl = SAXON_HEADER +
+                "<xsl:template match='/'><r>" +
+                "<xsl:value-of select=\"saxon:query(" +
+                "  'declare namespace q = ''urn:x''; " +
+                "   declare variable $q:v external; string($q:v)', " +
+                "  ., " +
+                "  map { 'Q{urn:x}v' : 'hello' })\"/>" +
+                "</r></xsl:template>" +
+                "</xsl:stylesheet>";
+        String out = run(xsl, "<x/>");
+        assertTrue(out.contains(">hello</r>"), "Expected hello, got: " + out);
+    }
+
+    @Test
+    void bindingsMapNodeValue() throws Exception {
+        // Bind a node-valued external variable.
+        String xsl = SAXON_HEADER +
+                "<xsl:template match='/'><r>" +
+                "<xsl:variable name='doc'><items><i>a</i><i>b</i><i>c</i></items></xsl:variable>" +
+                "<xsl:value-of select=\"saxon:query(" +
+                "  'declare variable $doc external; count($doc//i)', " +
+                "  ., " +
+                "  map { 'doc' : $doc })\"/>" +
+                "</r></xsl:template>" +
+                "</xsl:stylesheet>";
+        String out = run(xsl, "<x/>");
+        assertTrue(out.contains(">3</r>"), "Expected 3, got: " + out);
+    }
+
+    @Test
     void directConstructor() throws Exception {
         // XQuery direct element constructors — also XQuery-only.
         String xsl = SAXON_HEADER +
