@@ -10,6 +10,7 @@ with full design notes, file lists, usage examples, and tests.
 |---|---|---|
 | Extension Element Factory Support | Implemented | [extension-element-factory.md](docs/enhancements/extension-element-factory.md) |
 | Dynamic Evaluate Extension Functions (`sk:evaluate`, `saxon:evaluate`) | Implemented | [dynamic-evaluate.md](docs/enhancements/dynamic-evaluate.md) |
+| EXPath File Module (`file:*` — read/write/list/exists/…) | Implemented (best-effort) | [expath-file-module.md](docs/enhancements/expath-file-module.md) |
 
 ## How to Document New Enhancements
 
