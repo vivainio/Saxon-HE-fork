@@ -165,6 +165,19 @@ public class StyleNodeFactory implements NodeFactory {
         NamespaceUri uri = elemName.getNamespaceUri();
 
         if (toplevel && !uri.equals(NamespaceUri.XSLT)) {
+            // Fork enhancement: recognize known top-level Saxon extension
+            // declarations (normally PE/EE-only) before falling back to
+            // the inert DataElement. Lets HE honour saxon:import-query etc.
+            if (uri.equals(NamespaceUri.SAXON)) {
+                StyleElement saxonTop = makeSaxonTopLevelDeclaration(elemName.getLocalPart());
+                if (saxonTop != null) {
+                    saxonTop.setCompilation(compilation);
+                    saxonTop.setNamespaceMap(namespaces);
+                    saxonTop.initialise(elemName, elemType, attlist, parent, sequence);
+                    saxonTop.setLocation(baseURI, lineNumber, columnNumber);
+                    return saxonTop;
+                }
+            }
             DataElement d = new DataElement();
             d.setNamespaceMap(namespaces);
             d.initialise(elemName, elemType, attlist, parent, sequence);
@@ -298,6 +311,25 @@ public class StyleNodeFactory implements NodeFactory {
      * @param parent the parent node
      * @return the constructed element node
      */
+
+    /**
+     * Fork enhancement: factory for top-level elements in the Saxon
+     * extension namespace. Returns a {@link StyleElement} for the
+     * supported local names, or {@code null} to fall through to the
+     * default {@link DataElement} treatment. Saxon-HE recognises:
+     * <ul>
+     *   <li>{@code saxon:import-query} — imports an XQuery library
+     *       module's public functions into the stylesheet's function
+     *       scope, mirroring the Saxon-PE/EE extension.</li>
+     * </ul>
+     */
+    /*@Nullable*/
+    protected StyleElement makeSaxonTopLevelDeclaration(String localName) {
+        if ("import-query".equals(localName)) {
+            return new SaxonImportQuery();
+        }
+        return null;
+    }
 
     /*@Nullable*/
     protected StyleElement makeXSLElement(int f, NodeImpl parent) {
