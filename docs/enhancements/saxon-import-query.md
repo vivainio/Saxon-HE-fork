@@ -172,10 +172,13 @@ down a Configuration releases its cached libraries.
 
 ## Files added
 
-- `src/main/java/net/sf/saxon/style/SaxonImportQuery.java` — the
-  top-level `StyleElement` that compiles the library and merges its
-  functions into the stylesheet package.
-- `src/test/java/net/sf/saxon/style/SaxonImportQueryTest.java` —
+- `src/main/java/net/sf/saxon/extensions/xquery/SaxonImportQuery.java` —
+  the top-level `StyleElement` that compiles the library and merges
+  its functions into the stylesheet package. Lives in the fork's
+  extension package (alongside `SaxonQueryDefinition`), not in
+  upstream's `net.sf.saxon.style`, to minimise the surface modified
+  in upstream source files.
+- `src/test/java/net/sf/saxon/extensions/xquery/SaxonImportQueryTest.java` —
   4 tests:
   1. basic import + call of a public function with a relative `href`
      pointing at a real `.xq` file on disk,

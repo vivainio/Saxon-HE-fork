@@ -1,4 +1,4 @@
-package net.sf.saxon.style;
+package net.sf.saxon.extensions.xquery;
 
 import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.s9api.SaxonApiException;

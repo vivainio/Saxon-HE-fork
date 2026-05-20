@@ -1,4 +1,4 @@
-package net.sf.saxon.style;
+package net.sf.saxon.extensions.xquery;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.Component;
@@ -6,12 +6,16 @@ import net.sf.saxon.expr.instruct.Executable;
 import net.sf.saxon.expr.instruct.UserFunction;
 import net.sf.saxon.om.AttributeInfo;
 import net.sf.saxon.om.NamespaceUri;
-import net.sf.saxon.om.NodeName;
 import net.sf.saxon.query.QueryModule;
 import net.sf.saxon.query.StaticQueryContext;
 import net.sf.saxon.query.XQueryExpression;
 import net.sf.saxon.query.XQueryFunction;
 import net.sf.saxon.query.XQueryFunctionLibrary;
+import net.sf.saxon.style.Compilation;
+import net.sf.saxon.style.ComponentDeclaration;
+import net.sf.saxon.style.PrincipalStylesheetModule;
+import net.sf.saxon.style.StyleElement;
+import net.sf.saxon.style.StylesheetPackage;
 import net.sf.saxon.trans.Visibility;
 import net.sf.saxon.trans.VisibilityProvenance;
 import net.sf.saxon.trans.XPathException;

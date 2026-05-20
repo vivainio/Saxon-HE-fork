@@ -326,7 +326,7 @@ public class StyleNodeFactory implements NodeFactory {
     /*@Nullable*/
     protected StyleElement makeSaxonTopLevelDeclaration(String localName) {
         if ("import-query".equals(localName)) {
-            return new SaxonImportQuery();
+            return new net.sf.saxon.extensions.xquery.SaxonImportQuery();
         }
         return null;
     }
