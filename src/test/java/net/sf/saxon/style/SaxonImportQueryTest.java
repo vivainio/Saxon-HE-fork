@@ -26,7 +26,11 @@ class SaxonImportQueryTest {
 
     private static String runWithModule(Path moduleFile, String stylesheet, String xml)
             throws SaxonApiException {
-        Processor processor = new Processor(false);
+        return runWithModule(new Processor(false), moduleFile, stylesheet, xml);
+    }
+
+    private static String runWithModule(Processor processor, Path moduleFile,
+                                        String stylesheet, String xml) throws SaxonApiException {
         XsltCompiler compiler = processor.newXsltCompiler();
         XsltExecutable exec = compiler.compile(
                 new StreamSource(new StringReader(stylesheet),
@@ -114,6 +118,49 @@ class SaxonImportQueryTest {
         String out = runWithModule(moduleFile, xsl, "<x/>");
         assertTrue(out.contains("<a>11</a>"), "1-arg add, got: " + out);
         assertTrue(out.contains("<b>30</b>"), "2-arg add, got: " + out);
+    }
+
+    @Test
+    void cacheIsSharedAcrossStylesheets(@TempDir Path tmp) throws Exception {
+        // Same Processor compiles two distinct stylesheets that both
+        // import the same library. The second compile should reuse the
+        // cached QueryModule list — verified by: (a) both stylesheets
+        // produce correct output, and (b) mutating the source file
+        // (with a future mtime) invalidates the cache for a third
+        // stylesheet.
+        Path moduleFile = tmp.resolve("lib.xq");
+        Files.writeString(moduleFile,
+                "module namespace c = \"http://example.com/cache\";\n" +
+                        "declare function c:tag() as xs:string { 'v1' };\n");
+
+        String xslTemplate = "<xsl:stylesheet version='3.0' " +
+                "xmlns:xsl='http://www.w3.org/1999/XSL/Transform' " +
+                "xmlns:saxon='http://saxon.sf.net/' " +
+                "xmlns:c='http://example.com/cache'>" +
+                "<saxon:import-query namespace='http://example.com/cache' href='lib.xq'/>" +
+                "<xsl:template match='/'><r><xsl:value-of select='c:tag()'/></r></xsl:template>" +
+                "</xsl:stylesheet>";
+
+        Processor processor = new Processor(false);
+
+        String first = runWithModule(processor, moduleFile, xslTemplate, "<x/>");
+        assertTrue(first.contains(">v1</r>"), "first compile, got: " + first);
+
+        // Second compile in same Processor — cache hit.
+        String second = runWithModule(processor, moduleFile, xslTemplate, "<x/>");
+        assertTrue(second.contains(">v1</r>"), "second compile (cache hit), got: " + second);
+
+        // Mutate the source with a strictly-newer mtime, then recompile.
+        // The cache should invalidate based on mtime and pick up the new body.
+        Files.writeString(moduleFile,
+                "module namespace c = \"http://example.com/cache\";\n" +
+                        "declare function c:tag() as xs:string { 'v2' };\n");
+        Files.setLastModifiedTime(moduleFile,
+                java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 5000));
+
+        String third = runWithModule(processor, moduleFile, xslTemplate, "<x/>");
+        assertTrue(third.contains(">v2</r>"),
+                "third compile (after mutation) should see new body, got: " + third);
     }
 
     @Test

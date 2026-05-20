@@ -146,6 +146,30 @@ resolves via the normal XPath function-resolution chain, binds
 statically to the imported `UserFunction`, and runs at the same cost
 as any built-in or `xsl:function` call.
 
+## Library cache
+
+Library compiles are cached per `Configuration` keyed by
+`(namespace, absolute-href, file-mtime)`. When N stylesheets in the
+same JVM import the same library file:
+
+- First import: XQuery parser + analyzer run.
+- Subsequent imports: cache hit, no parse, no analyze.
+- Source file mtime changes (deploy, dev hot-reload, `touch`): cache
+  miss; the library is recompiled.
+- Non-`file:` URIs (`http:`, `classpath:` etc.) use mtime `-1` and are
+  treated as immutable for the JVM lifetime — don't use this caching
+  path for volatile remote libraries.
+
+Each importing stylesheet package gets its own `Component` wrapping
+the shared `UserFunction`. This is safe because XSLT's binding-slot
+allocator gates on `packageData.isXSLT()`, which is `false` for
+XQuery-compiled functions — the allocator never tries to recurse into
+their bodies. Each package's `componentIndex` therefore has its own
+entry, but the function body is parsed and held once.
+
+The cache is keyed on `Configuration` via a `WeakHashMap`, so shutting
+down a Configuration releases its cached libraries.
+
 ## Files added
 
 - `src/main/java/net/sf/saxon/style/SaxonImportQuery.java` — the
