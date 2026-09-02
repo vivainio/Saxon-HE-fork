@@ -14,9 +14,10 @@ real implementations of extension elements like `<service:init/>`.
 - `src/main/java/net/sf/saxon/style/NoOpExtensionElement.java` — No-op
   implementation for ignoring elements.
 - `src/main/java/net/sf/saxon/Configuration.java` — Added factory
-  registration (lines 203-204, 4012-4037).
+  registration (as of Saxon 13.0.1: field at line 206, methods at
+  lines 3775-3792).
 - `src/main/java/net/sf/saxon/style/StyleNodeFactory.java` — Use
-  registered factories (lines 221-232, 250-251).
+  registered factories (as of Saxon 13.0.1: lines 242-256, 271-272).
 
 ## Usage
 

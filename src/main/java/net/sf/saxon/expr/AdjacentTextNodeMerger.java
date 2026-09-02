@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,7 +21,7 @@ import net.sf.saxon.om.AtomicSequence;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.SequenceIterator;
-import net.sf.saxon.pattern.NodeKindTest;
+import net.sf.saxon.type.gnode.NodeKindType;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AdjacentTextNodeMergingIterator;
 import net.sf.saxon.type.*;
@@ -73,8 +73,8 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
     }
 
     private static boolean canDeliverAdjacentTextNodes(Expression expr, TypeHierarchy th) {
-        return th.relationship(expr.getItemType(), NodeKindTest.TEXT) != Affinity.DISJOINT
-                && Cardinality.allowsMany(expr.getCardinality());
+        return th.relationship(expr.getItemType(), NodeKindType.TEXT) != Affinity.DISJOINT
+                        && Cardinality.allowsMany(expr.getCardinality());
     }
 
     /*@NotNull*/
@@ -90,21 +90,19 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
             base.setParentExpression(getParentExpression());
             return base;
         }
-
-        // In a Choose expression, we can push the wrapper down to the action branches (whence it may disappear)
-        if (getBaseExpression() instanceof Choose) {
-            Choose choose = (Choose) getBaseExpression();
+        // In a `choose` expression, we can push the wrapper down to the action branches (whence it may disappear)
+        if (getBaseExpression() instanceof Choose choose) {
             for (int i = 0; i < choose.size(); i++) {
                 if (canDeliverAdjacentTextNodes(choose.getAction(i), th)) {
                     AdjacentTextNodeMerger atm2 = new AdjacentTextNodeMerger(choose.getAction(i));
                     choose.setAction(i, atm2);
                 }
             }
+            ExpressionTool.validateTree(choose);
             return choose;
         }
         // In a Block expression, check whether adjacent text nodes can occur (used in test strmode089)
-        if (getBaseExpression() instanceof Block) {
-            Block block = (Block) getBaseExpression();
+        if (getBaseExpression() instanceof Block block) {
             Operand[] actions = block.getOperanda();
             boolean prevtext = false;
             boolean needed = false;
@@ -117,7 +115,7 @@ public class AdjacentTextNodeMerger extends UnaryExpression {
                     Expression content = ((ValueOf) action).getSelect();
                     if (content instanceof StringLiteral) {
                         // if it's empty, we could remove it now, but that's awkward and probably doesn't happen
-                        maybeEmpty |= ((StringLiteral) content).getString().isEmpty();
+                        maybeEmpty |= ((StringLiteral) content).getUnicodeString().isEmpty();
                     } else {
                         maybeEmpty = true;
                     }

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -7,29 +7,36 @@
 
 package net.sf.saxon.functions;
 
-import net.sf.saxon.expr.*;
+import net.sf.saxon.Configuration;
+import net.sf.saxon.expr.DefaultedArgumentExpression;
+import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.StringLiteral;
+import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.parser.ExpressionTool;
 import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.CodepointCollator;
 import net.sf.saxon.expr.sort.GenericAtomicComparer;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.StringCollator;
-import net.sf.saxon.ma.map.DictionaryMap;
+import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.jnode.JNode;
 import net.sf.saxon.ma.map.MapItem;
+import net.sf.saxon.ma.map.SingleEntryMap;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.NodeSelector;
-import net.sf.saxon.pattern.SameNameTest;
+import net.sf.saxon.pattern.NodePredicateLambda;
+import net.sf.saxon.pattern.PortableNamedXNodeType;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.str.StringTool;
 import net.sf.saxon.str.StringView;
 import net.sf.saxon.str.UnicodeBuilder;
 import net.sf.saxon.str.UnicodeString;
-import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.tree.iter.AtomicIterator;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.ListIterator;
+import net.sf.saxon.tree.iter.SingletonIterator;
 import net.sf.saxon.tree.tiny.WhitespaceTextImpl;
 import net.sf.saxon.tree.util.Navigator;
 import net.sf.saxon.tree.util.Orphan;
@@ -39,7 +46,9 @@ import net.sf.saxon.z.IntHashSet;
 import net.sf.saxon.z.IntSet;
 
 import java.util.*;
+import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * XSLT 2.0 deep-equal() function, where the collation is already known.
@@ -49,70 +58,88 @@ import java.util.function.Function;
 
 public class DeepEqual extends CollatingFunctionFixed {
 
+    private final int version;
+
+    public static Supplier<SystemFunction> makeDeepEqual(int version) {
+        return () -> new DeepEqual(version);
+    }
+
+    public DeepEqual() {
+        this(31);
+    }
+
+    private DeepEqual(int version) {
+        this.version = version;
+    }
+
     public static OptionsParameter OPTION_DETAILS;
 
     static {
-        OptionsParameter o = new OptionsParameter();
+        SequenceType itemsEqualFn = SequenceType.optional(
+                new SpecificFunctionType(SequenceType.SINGLE_ITEM, SequenceType.SINGLE_ITEM,
+                                         SequenceType.OPTIONAL_BOOLEAN));
+        OptionsParameter o = new OptionsParameter(40);
         o.addAllowedOption("base-uri", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
+        o.addAllowedOption("collation", SequenceType.SINGLE_STRING);
         o.addAllowedOption("comments", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         o.addAllowedOption("debug", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
-        o.addAllowedOption("false-on-error", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
+        //o.addAllowedOption("false-on-error", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         o.addAllowedOption("id-property", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         o.addAllowedOption("idrefs-property", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         o.addAllowedOption("in-scope-namespaces", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
+        o.addAllowedOption("items-equal", itemsEqualFn, BooleanValue.FALSE);
+        o.addAllowedOption("map-order", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         o.addAllowedOption("namespace-prefixes", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         o.addAllowedOption("nilled-property", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
-        o.addAllowedOption("normalize-space", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
-        o.addAllowedOption("preserve-space", SequenceType.SINGLE_BOOLEAN, BooleanValue.TRUE);
+        //o.addAllowedOption("normalize-space", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
+        o.addAllowedOption("ordered", SequenceType.SINGLE_BOOLEAN, BooleanValue.TRUE);
+        //o.addAllowedOption("preserve-space", SequenceType.SINGLE_BOOLEAN, BooleanValue.TRUE);
         o.addAllowedOption("processing-instructions", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
-        o.addAllowedOption("text-boundaries", SequenceType.SINGLE_BOOLEAN, BooleanValue.TRUE);
+        //o.addAllowedOption("text-boundaries", SequenceType.SINGLE_BOOLEAN, BooleanValue.TRUE);
         o.addAllowedOption("timezones", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         o.addAllowedOption("type-annotations", SequenceType.SINGLE_BOOLEAN, BooleanValue.FALSE);
         o.addAllowedOption("type-variety", SequenceType.SINGLE_BOOLEAN, BooleanValue.TRUE);
         o.addAllowedOption("typed-values", SequenceType.SINGLE_BOOLEAN, BooleanValue.TRUE);
 
-        o.addAllowedOption("normalization-form", SequenceType.OPTIONAL_STRING, EmptySequence.getInstance());
+        o.addAllowedOption("normalization-form", SequenceType.OPTIONAL_STRING, EmptySequence.INSTANCE);
         o.setAllowedValues("normalization-form", "FOJS0005", "NFC", "NFD", "NFKC", "NFKD");
 
-        o.addAllowedOption("unordered-elements", BuiltInAtomicType.QNAME.zeroOrMore(), EmptySequence.getInstance());
+        o.addAllowedOption("unordered-elements", BuiltInAtomicType.QNAME.zeroOrMore(), EmptySequence.INSTANCE);
+
+        o.addAllowedOption("whitespace", SequenceType.OPTIONAL_STRING, new StringValue("preserve"));
+        o.setAllowedValues("whitespace", "FOJS0005", "preserve", "strip", "normalize");
 
         OPTION_DETAILS = o;
     }
 
     @Override
     public Expression makeFunctionCall(Expression... arguments) {
-        Expression[] newArgs = new Expression[4];
+        Expression[] newArgs = new Expression[3];
         newArgs[0] = arguments[0];
         newArgs[1] = arguments[1];
+
         if (arguments.length < 3 || arguments[2] instanceof DefaultedArgumentExpression) {
             newArgs[2] = new StringLiteral(getRetainedStaticContext().getDefaultCollationName());
         } else {
             newArgs[2] = arguments[2];
         }
-        if (arguments.length < 4 || arguments[3] instanceof DefaultedArgumentExpression) {
-            newArgs[3] = Literal.makeLiteral(new DictionaryMap());
-        } else {
-            newArgs[3] = arguments[3];
-        }
-        setArity(4);
+        setArity(3);
         return super.makeFunctionCall(newArgs);
     }
-
-
-    // TODO: confine options param to 4.0.
 
     public static class DeepEqualOptions {
         public boolean baseUriSignificant = false;
         public boolean commentsSignificant = false;
         public boolean debug = false;
-        public boolean falseOnError = false;
         public boolean idSignificant = false;
         public boolean idrefSignificant = false;
         public boolean inScopeNamespacesSignificant = false;
+        public boolean mapOrderSignificant = false;
         public boolean namespacePrefixesSignificant = false;
         public String normalizationForm = null;
         public boolean nilledSignificant = false;
         public boolean normalizeSpace = false;
+        public boolean stripSpace = false;
         public boolean processingInstructionsSignificant = false;
         public boolean textBoundariesSignificant = true;
         public boolean timezonesSignificant = false;
@@ -120,29 +147,36 @@ public class DeepEqual extends CollatingFunctionFixed {
         public boolean typeVarietySignificant = true;
         public boolean typedValuesSignificant = true;
         public Set<StructuredQName> unorderedElements = Collections.emptySet();
-        public boolean preserveSpace = true;
+        public boolean orderedTopLevel = true;
         public String collationName;
         public StringCollator stringCollator;
-        public AtomicComparer comparer;
+        public BiFunction<AtomicValue, AtomicValue, Boolean> comparer;
+        public FunctionItem itemsEqualFn;
+        public int version;
 
 
         private static final String[] booleanOptions = new String[]{
-                "base-uri", "comments", "debug", "false-on-error", "id-property", "idrefs-property",
-                "in-scope-namespaces", "namespace-prefixes", "nilled-property", "normalize-space",
-                "preserve-space", "processing-instructions", "text-boundaries", "timezones",
+                "base-uri", "comments", "debug", "id-property", "idrefs-property",
+                "in-scope-namespaces", "map-order",
+                "namespace-prefixes", "nilled-property", "normalize-space",
+                "ordered", "processing-instructions", "text-boundaries", "timezones",
                 "type-annotations", "type-variety", "typed-values"};
 
 
-        public DeepEqualOptions() {}
-
-        public DeepEqualOptions(MapItem map, String collationName, XPathContext context) throws XPathException {
-            Map<String, GroundedValue> values = OPTION_DETAILS.processSuppliedOptions(map, context);
+        public DeepEqualOptions(MapItem map, XPathContext context, int version) throws XPathException {
+            Map<String, GroundedValue> values = OPTION_DETAILS.processSuppliedOptions(map, context, 40);
             for (String option : DeepEqualOptions.booleanOptions) {
                 setBooleanOption(values, option);
             }
+            this.version = version;
             GroundedValue normForm = map.get(new StringValue("normalization-form"));
             if (normForm != null) {
                 normalizationForm = normForm.getStringValue();
+            }
+            GroundedValue whitespace = map.get(new StringValue("whitespace"));
+            if (whitespace != null) {
+                stripSpace = whitespace.getStringValue().equals("strip");
+                normalizeSpace = whitespace.getStringValue().equals("normalize");
             }
             GroundedValue listedElements = map.get(new StringValue("unordered-elements"));
             if (listedElements != null) {
@@ -153,22 +187,66 @@ public class DeepEqual extends CollatingFunctionFixed {
                     }
                 }
             }
-            this.collationName = collationName;
+            GroundedValue collationItem = values.get("collation");
+            if (collationItem != null) {
+                this.collationName = collationItem.getStringValue();
+            } else {
+                this.collationName = CodepointCollator.getInstance().getCollationURI();
+            }
             stringCollator = context.getConfiguration().getCollation(collationName);
             if (stringCollator == null) {
                 throw new XPathException("Unknown collation " + collationName, "FOCH0002");
             }
-            comparer = GenericAtomicComparer.makeAtomicComparer(
-                    BuiltInAtomicType.ANY_ATOMIC, BuiltInAtomicType.ANY_ATOMIC,
-                    stringCollator, context);
-
-            if (normalizeSpace || normalizationForm != null) {
-                comparer = new NormalizingComparer(comparer, this);
+            if (version < 40) {
+                AtomicComparer ac = GenericAtomicComparer.makeAtomicComparer(
+                        BuiltInAtomicType.ANY_ATOMIC, BuiltInAtomicType.ANY_ATOMIC,
+                        stringCollator, version, context);
+                comparer = (a, b)  -> ac.comparesEqual(a, b);
+            } else {
+                comparer = (a, b) -> {
+                    int implicitTimezone = context.getImplicitTimezone();
+                    int implicitTimezone1 = context.getImplicitTimezone();
+                    return a.getXPathMatchKey(stringCollator, implicitTimezone1, 40)
+                            .equals(b.getXPathMatchKey(stringCollator, implicitTimezone, 40));
+                };
             }
-        }
-
-        public static DeepEqualOptions defaultOptions() {
-            return new DeepEqualOptions();
+            if (normalizeSpace || normalizationForm != null) {
+                final BiFunction<AtomicValue, AtomicValue, Boolean> baseComparer = comparer;
+                comparer = (v0, v1) -> {
+                    if (v0 instanceof StringValue && v1 instanceof StringValue) {
+                        UnicodeString u0 = v0.getUnicodeStringValue();
+                        UnicodeString u1 = v1.getUnicodeStringValue();
+                        if (normalizeSpace) {
+                            u0 = Whitespace.collapseWhitespace(u0);
+                            u1 = Whitespace.collapseWhitespace(u1);
+                        }
+                        if (normalizationForm != null) {
+                            try {
+                                u0 = StringView.of(NormalizeUnicode.normalize(u0.toString(), normalizationForm));
+                            } catch (XPathException e) {
+                                throw new IllegalArgumentException(e);
+                            }
+                            try {
+                                u1 = StringView.of(NormalizeUnicode.normalize(u1.toString(), normalizationForm));
+                            } catch (XPathException e) {
+                                throw new IllegalArgumentException();
+                            }
+                        }
+                        return stringCollator.comparesEqual(u0, u1);
+                    } else {
+                        return baseComparer.apply(v0, v1);
+                    }
+                };
+            }
+            GroundedValue itemsEqual = map.get(new StringValue("items-equal"));
+            if (itemsEqual != null) {
+                itemsEqualFn = (FunctionItem)itemsEqual.head();
+            }
+            // In 3.1, comments and processing instructions are ignored, but boundaries between
+            // text nodes are not. So <a>x<?pi?>y</a> is not deep-equal to <a>xy</a>, not because
+            // of the presence of the processing instruction, but because the number of text nodes
+            // is different. This crazy rule disappears in 4.0.
+            textBoundariesSignificant = version < 40;
         }
 
         private void setBooleanOption(Map<String, GroundedValue> map, String optionName) throws XPathException {
@@ -185,9 +263,6 @@ public class DeepEqual extends CollatingFunctionFixed {
                     case "debug":
                         debug = booleanValue;
                         return;
-                    case "false-on-error":
-                        falseOnError = booleanValue;
-                        return;
                     case "id-property":
                         idSignificant = booleanValue;
                         return;
@@ -196,6 +271,9 @@ public class DeepEqual extends CollatingFunctionFixed {
                         return;
                     case "in-scope-namespaces":
                         inScopeNamespacesSignificant = booleanValue;
+                        return;
+                    case "map-order":
+                        mapOrderSignificant = booleanValue;
                         return;
                     case "namespace-prefixes":
                         namespacePrefixesSignificant = booleanValue;
@@ -206,15 +284,15 @@ public class DeepEqual extends CollatingFunctionFixed {
                     case "normalize-space":
                         normalizeSpace = booleanValue;
                         return;
-                    case "preserve-space":
-                        preserveSpace = booleanValue;
+                    case "ordered":
+                        orderedTopLevel = booleanValue;
                         return;
                     case "processing-instructions":
                         processingInstructionsSignificant = booleanValue;
                         return;
-                    case "text-boundaries":
-                        textBoundariesSignificant = booleanValue;
-                        return;
+//                    case "text-boundaries":
+//                        textBoundariesSignificant = booleanValue;
+//                        return;
                     case "timezones":
                         timezonesSignificant = booleanValue;
                         return;
@@ -234,6 +312,75 @@ public class DeepEqual extends CollatingFunctionFixed {
         }
     }
 
+    /**
+     * Compute a hash code for a given item (used when doing unordered comparisons)
+     * @param item the given item
+     * @param options the comparison options
+     * @return the hash code
+     */
+
+    private static long hash(Item item, DeepEqualOptions options) {
+        if (options.itemsEqualFn != null) {
+            // We can't do any useful hashing for this case, so all items get the same hash code
+            return 1L;
+        }
+        switch (item.getGenre()) {
+            case ATOMIC:
+                return 0x01L << 56 | (long)((AtomicValue)item).asMapKey(options.version).hashCode();
+            case XNODE:
+                return 0x02L << 56 | (long)nodeHashCode(((NodeInfo)item), options);
+            case MAP:
+                return 0x03L << 56 | (long)((MapItem)item).size();   // TODO: improve this
+            case ARRAY:
+                return 0x04L << 56 | (long)((ArrayItem) item).arrayLength();   // TODO: improve this
+            case FUNCTION:
+                return 0x05L << 56 | (long)System.identityHashCode(item);
+            case EXTERNAL:
+            default:
+                return 0x06L << 56 | (long)((ObjectValue<?>)item).getObject().hashCode();
+        }
+    }
+
+    private static Map<Long, List<Item>> makeHashMap(SequenceIterator iter, DeepEqualOptions options) {
+        Map<Long, List<Item>> result = new HashMap<>();
+        Item item;
+        //int count = 0;
+        while ((item = iter.next()) != null) {
+            //count++;
+            long itemHash = hash(item, options);
+            List<Item> bucket = result.computeIfAbsent(itemHash, k -> new ArrayList<Item>());
+            bucket.add(item);
+        }
+        //System.err.println("*** Hash: " + count + " items in " + result.size() + " buckets");
+        return result;
+    }
+
+    private static boolean cartesianCompare(List<Item> list0, List<Item> list1, XPathContext context, DeepEqualOptions options)
+    throws XPathException {
+        if (list0.size() != list1.size()) {
+            return false;
+        }
+        IntHashSet matched = new IntHashSet();
+        for (Item i0 : list0) {
+            int matchPos = -1;
+            for (int j=0; j<list1.size(); j++) {
+                if (!matched.contains(j)) {
+                    SequenceIterator iter0 = SingletonIterator.makeIterator(i0);
+                    SequenceIterator iter1 = SingletonIterator.makeIterator(list1.get(j));
+                    if (deepEqual(iter0, iter1, context, options)) {
+                        matchPos = j;
+                        matched.add(j);
+                        break;
+                    }
+                }
+            }
+            if (matchPos == -1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 
     /**
      * Determine when two sequences are deep-equal
@@ -249,16 +396,36 @@ public class DeepEqual extends CollatingFunctionFixed {
     public static boolean deepEqual(SequenceIterator op1, SequenceIterator op2,
                                     XPathContext context, DeepEqualOptions options)
             throws XPathException {
+
+        if (!options.orderedTopLevel) {
+            // Group the items into hash buckets, then do N*N comparison within each hash bucket.
+            // The hashing is chosen (a) to be reasonably fast, and (b) to ignore anything that varies
+            // depending on the comparison options
+            Map<Long, List<Item>> hashMap1 = makeHashMap(op1, options);
+            Map<Long, List<Item>> hashMap2 = makeHashMap(op2, options);
+            if (hashMap1.size() != hashMap2.size()) {
+                return false;
+            }
+            options.orderedTopLevel = true;
+            for (Map.Entry<Long, List<Item>> bucket1 : hashMap1.entrySet()) {
+                List<Item> list2 = hashMap2.get(bucket1.getKey());
+                if (list2 == null) {
+                    return false;
+                }
+                if (!cartesianCompare(bucket1.getValue(), list2, context, options)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         boolean result = true;
         String reason = null;
         ErrorReporter reporter = context.getErrorReporter();
 
         try {
-
-            if (!options.textBoundariesSignificant) {
-                op1 = mergeAdjacentTextNodes(op1);
-                op2 = mergeAdjacentTextNodes(op2);
-            }
+            op1 = mergeAdjacentTextNodes(op1);
+            op2 = mergeAdjacentTextNodes(op2);
             int pos1 = 0;
             int pos2 = 0;
             while (true) {
@@ -285,10 +452,24 @@ public class DeepEqual extends CollatingFunctionFixed {
                     break;
                 }
 
+                if (options.itemsEqualFn != null && !(item1 instanceof NodeInfo && item2 instanceof NodeInfo)) {
+                    // Skip the callback if both items are nodes, as it will be done later
+                    Sequence comparison = options.itemsEqualFn.call(context, new Sequence[]{item1, item2});
+                    BooleanValue bv = (BooleanValue)comparison.head();
+                    if (bv != null) {
+                        if (!bv.getBooleanValue()) {
+                            return false;
+                        } else {
+                            continue;
+                        }
+                    }
+                }
+
                 if (item1 instanceof FunctionItem || item2 instanceof FunctionItem) {
                     if (!(item1 instanceof FunctionItem && item2 instanceof FunctionItem)) {
                         reason = "if one item is a function then both must be functions (position " + pos1 + ")";
-                        return false;
+                        result = false;
+                        break;
                     }
                     // two maps or arrays can be deep-equal
                     boolean fe = ((FunctionItem) item1).deepEqual40((FunctionItem) item2, context, options);
@@ -307,30 +488,39 @@ public class DeepEqual extends CollatingFunctionFixed {
                     continue;
                 }
 
-                if (item1 instanceof NodeInfo) {
-                    if (item2 instanceof NodeInfo) {
-                        String message = deepEqual((NodeInfo) item1, (NodeInfo) item2, context, options);
-                        if (message != null) {
-                            result = false;
-                            reason = "nodes at position " + pos1 + " differ: " + message;
-                            break;
-                        }
-                    } else {
+                if (item1 instanceof NodeInfo && item2 instanceof NodeInfo) {
+                    String message = deepEqual((NodeInfo) item1, (NodeInfo) item2, context, options);
+                    if (message != null) {
                         result = false;
-                        reason = "comparing a node to an atomic value at position " + pos1;
+                        reason = "nodes at position " + pos1 + " differ: " + message;
                         break;
                     }
+                    continue;
+                }
+
+                if (item1 instanceof JNode && item2 instanceof JNode) {
+                    boolean OK = deepEqual(((JNode) item1).getContent().iterate(),
+                                               ((JNode) item2).getContent().iterate(),
+                                               context, options);
+                    if (!OK) {
+                        result = false;
+                        reason = "JNodes at position " + pos1 + " have different content";
+                        break;
+                    }
+                    continue;
+
                 } else {
                     if (item2 instanceof NodeInfo) {
                         result = false;
                         reason = "comparing an atomic value to a node at position " + pos1;
                         break;
                     } else {
+                        // Compare two atomic values
                         AtomicValue av1 = (AtomicValue) item1;
                         AtomicValue av2 = (AtomicValue) item2;
                         if (av1.isNaN() && av2.isNaN()) {
                             // treat as equal, no action
-                        } else if (!options.comparer.comparesEqual(av1, av2)) {
+                        } else if (!options.comparer.apply(av1, av2)) {
                             result = false;
                             reason = "atomic values at position " + pos1 + " differ";
                             break;
@@ -378,18 +568,33 @@ public class DeepEqual extends CollatingFunctionFixed {
     }
 
     /*
-     * Determine whether two nodes are deep-equal
-     * @return null if they are deep equal, or an explanation of the reason if not
+     * Determine whether two nodes are deep-equal.
      */
 
     public static String deepEqual(NodeInfo n1, NodeInfo n2, XPathContext context, DeepEqualOptions options)
             throws XPathException {
+
+        ErrorReporter reporter = context.getErrorReporter();
+
+        if (options.itemsEqualFn != null) {
+            Sequence comparison = options.itemsEqualFn.call(context, new Sequence[]{n1, n2});
+            BooleanValue bv = (BooleanValue) comparison.head();
+            if (bv != null) {
+                final String reason = "Two nodes are deemed not equal by the items-equal callback function";
+                if (!bv.getBooleanValue()) {
+                    explain(reporter, reason, options, n1, n2);
+                    return reason;
+                } else {
+                    return null;
+                }
+            }
+        }
+
         // shortcut: a node is always deep-equal to itself
         if (n1.equals(n2)) {
             return null;
         }
 
-        ErrorReporter reporter = context.getErrorReporter();
 
         if (n1.getNodeKind() != n2.getNodeKind()) {
             String reason = "node kinds differ: comparing " + showKind(n1) + " to " + showKind(n2);
@@ -429,19 +634,19 @@ public class DeepEqual extends CollatingFunctionFixed {
                     explain(reporter, reason, options, n1, n2);
                     return reason;
                 }
-                AxisIterator a1 = n1.iterateAxis(AxisInfo.ATTRIBUTE);
-                AxisIterator a2 = n2.iterateAxis(AxisInfo.ATTRIBUTE);
+                SequenceIterator a1 = n1.iterateAttributeAxis(AnyGNode.TEST);
+                SequenceIterator a2 = n2.iterateAttributeAxis(AnyGNode.TEST);
                 if (!SequenceTool.sameLength(a1, a2)) {
                     final String reason = "elements have different number of attributes";
                     explain(reporter, reason, options, n1, n2);
                     return reason;
                 }
                 NodeInfo att1;
-                a1 = n1.iterateAxis(AxisInfo.ATTRIBUTE);
-                while ((att1 = a1.next()) != null) {
-                    AxisIterator a2iter = n2.iterateAxis(AxisInfo.ATTRIBUTE,
-                                                         new SameNameTest(att1));
-                    NodeInfo att2 = a2iter.next();
+                a1 = n1.iterateAttributeAxis(AnyGNode.TEST);
+                while ((att1 = ((NodeInfo)a1.next())) != null) {
+                    SequenceIterator a2iter = n2.iterateAttributeAxis(
+                            new PortableNamedXNodeType(Type.ATTRIBUTE, att1.getQName()));
+                    NodeInfo att2 = (NodeInfo)a2iter.next();
 
                     if (att2 == null) {
                         final String reason = "one element has an attribute " +
@@ -450,6 +655,7 @@ public class DeepEqual extends CollatingFunctionFixed {
                         explain(reporter, reason, options, n1, n2);
                         return reason;
                     }
+
                     String attReason = deepEqual(att1, att2, context, options);
                     if (attReason != null) {
                         final String reason = "elements have different values for the attribute " +
@@ -536,8 +742,8 @@ public class DeepEqual extends CollatingFunctionFixed {
                 CSharp.emitCode("goto case Saxon.Hej.type.Type.DOCUMENT;");
                 // fall through
             case Type.DOCUMENT:
-                SequenceIterator c1 = n1.iterateAxis(AxisInfo.CHILD, NodeSelector.of(node -> !isIgnorable(node, options)));
-                SequenceIterator c2 = n2.iterateAxis(AxisInfo.CHILD, NodeSelector.of(node -> !isIgnorable(node, options)));
+                SequenceIterator c1 = n1.iterateChildAxis(NodePredicateLambda.of(node -> !isIgnorable((NodeInfo)node, options)));
+                SequenceIterator c2 = n2.iterateChildAxis(NodePredicateLambda.of(node -> !isIgnorable((NodeInfo)node, options)));
 
                 if (!options.textBoundariesSignificant) {
                     c1 = mergeAdjacentTextNodes(c1);
@@ -592,7 +798,7 @@ public class DeepEqual extends CollatingFunctionFixed {
                 if (options.typedValuesSignificant) {
                     ar = deepEqual(n1.atomize().iterate(), n2.atomize().iterate(), context, options);
                 } else {
-                    ar = options.comparer.comparesEqual(new StringValue(n1.getUnicodeStringValue()), new StringValue(n2.getUnicodeStringValue()));
+                    ar = options.comparer.apply(new StringValue(n1.getUnicodeStringValue()), new StringValue(n2.getUnicodeStringValue()));
                 }
                 if (!ar) {
                     final String reason = "attribute values differ";
@@ -686,13 +892,15 @@ public class DeepEqual extends CollatingFunctionFixed {
         List<NodeInfo> children0 = new ArrayList<>();
         List<NodeInfo> children1 = new ArrayList<>();
 
-        for (NodeInfo c0 : e0.children()) {
+        SequenceIterator children0iter = e0.iterateChildAxis(null);
+        for (NodeInfo c0; (c0 = (NodeInfo) children0iter.next()) != null; ) {
             if (!isIgnorable(c0, options)) {
                 children0.add(c0);
             }
         }
 
-        for (NodeInfo c1 : e1.children()) {
+        SequenceIterator children1iter = e1.iterateChildAxis(null);
+        for (NodeInfo c1; (c1 = (NodeInfo) children1iter.next()) != null; ) {
             if (!isIgnorable(c1, options)) {
                 children1.add(c1);
             }
@@ -705,13 +913,13 @@ public class DeepEqual extends CollatingFunctionFixed {
         List<Integer> hashcodes1 = new ArrayList<>(children1.size());
         IntSet hashSet = new IntHashSet();
         for (NodeInfo nodeInfo : children1) {
-            final int hash = computeHashCode(nodeInfo, options);
+            final int hash = nodeHashCode(nodeInfo, options);
             hashSet.add(hash);
             hashcodes1.add(hash);
         }
 
         for (NodeInfo c0 : children0) {
-            final int hash = computeHashCode(c0, options);
+            final int hash = nodeHashCode(c0, options);
             if (!hashSet.contains(hash)) {
                 return "Node found among first node's children with no counterpart among the second node's children";
             }
@@ -732,9 +940,16 @@ public class DeepEqual extends CollatingFunctionFixed {
         return null;
     }
 
-    private static int computeHashCode(NodeInfo node, DeepEqualOptions options) {
+    private static int nodeHashCode(NodeInfo node, DeepEqualOptions options) {
+        // If there's a user-defined items-equal callback, hashing isn't possible
+        if (options.itemsEqualFn != null) {
+            return 1;
+        }
         // Keep it simple for now - independent of the options
-        return node.getNodeKind() << 24 ^ node.getFingerprint() ^ (node.attributes().size() << 10);
+        return node.getNodeKind() << 24
+                ^ (node.hasFingerprint() ? node.getFingerprint() : node.getConfiguration().getNamePool().allocateFingerprint(node.getNamespaceUri(), node.getLocalPart()))
+                ^ (node.attributes().size() << 10)
+                ^ Whitespace.normalize(node.getUnicodeStringValue()).hashCode();
 
     }
 
@@ -793,8 +1008,20 @@ public class DeepEqual extends CollatingFunctionFixed {
         } else if (kind == Type.PROCESSING_INSTRUCTION) {
             return !options.processingInstructionsSignificant;
         } else if (kind == Type.TEXT) {
-            return (!options.preserveSpace) &&
-                    Whitespace.isAllWhite(node.getUnicodeStringValue());
+            return (options.stripSpace || options.normalizeSpace) &&
+                    Whitespace.isAllWhite(node.getUnicodeStringValue()) &&
+                    !isWithinXmlSpacePreserve(node);
+        }
+        return false;
+    }
+
+    private static boolean isWithinXmlSpacePreserve(NodeInfo node) {
+        while (node != null) {
+            String att = node.getAttributeValue(NamespaceUri.XML, "space");
+            if (att != null) {
+                return Whitespace.normalize(att).equals("preserve");
+            }
+            node = (NodeInfo)node.getParent();
         }
         return false;
     }
@@ -802,10 +1029,10 @@ public class DeepEqual extends CollatingFunctionFixed {
     private static void explain(ErrorReporter reporter, String message, DeepEqualOptions options, NodeInfo n1, NodeInfo n2) {
         if (options.debug) {
             reporter.report(new XmlProcessingIncident("deep-equal() " +
-                                                              (n1 != null && n2 != null ?
-                                                                       "comparing " + Navigator.getPath(n1) + " to " + Navigator.getPath(n2) + ": " :
-                                                                       ": ") +
-                                                              message).asWarning());
+                              (n1 != null && n2 != null ?
+                                       "comparing " + Navigator.getPath(n1) + " to " + Navigator.getPath(n2) + ": " :
+                                       ": ") +
+                              message).asWarning());
         }
     }
 
@@ -818,33 +1045,37 @@ public class DeepEqual extends CollatingFunctionFixed {
         }
     }
 
-    private static String showNamespaces(HashSet<NamespaceBinding> bindings) {
-        StringBuilder sb = new StringBuilder(256);
-        for (NamespaceBinding binding : bindings) {
-            sb.append(binding.getPrefix());
-            sb.append("=");
-            sb.append(binding.getNamespaceUri());
-            sb.append(" ");
-        }
-        sb.setLength(sb.length() - 1);
-        return sb.toString();
-    }
+//    private static String showNamespaces(HashSet<NamespaceBinding> bindings) {
+//        StringBuilder sb = new StringBuilder(256);
+//        for (NamespaceBinding binding : bindings) {
+//            sb.append(binding.getPrefix());
+//            sb.append("=");
+//            sb.append(binding.getNamespaceUri());
+//            sb.append(" ");
+//        }
+//        sb.setLength(sb.length() - 1);
+//        return sb.toString();
+//    }
 
-    private static SequenceIterator mergeAdjacentTextNodes(SequenceIterator in) throws XPathException {
+    private static SequenceIterator mergeAdjacentTextNodes(SequenceIterator in) {
         List<Item> items = new ArrayList<>(20);
         boolean prevIsText = false;
         UnicodeBuilder textBuffer = new UnicodeBuilder();
+        Configuration config = null;
         while (true) {
             Item next = in.next();
             if (next == null) {
                 break;
             }
             if (next instanceof NodeInfo && ((NodeInfo) next).getNodeKind() == Type.TEXT) {
+                if (config == null) {
+                    config = ((NodeInfo) next).getConfiguration();
+                }
                 textBuffer.accept(next.getUnicodeStringValue());
                 prevIsText = true;
             } else {
                 if (prevIsText) {
-                    Orphan textNode = new Orphan(null);
+                    Orphan textNode = new Orphan(config);
                     textNode.setNodeKind(Type.TEXT);
                     textNode.setStringValue(textBuffer.toUnicodeString());
                     items.add(textNode);
@@ -855,7 +1086,7 @@ public class DeepEqual extends CollatingFunctionFixed {
             }
         }
         if (prevIsText) {
-            Orphan textNode = new Orphan(null);
+            Orphan textNode = new Orphan(config);
             textNode.setNodeKind(Type.TEXT);
             textNode.setStringValue(textBuffer.toUnicodeString());
             items.add(textNode);
@@ -864,7 +1095,7 @@ public class DeepEqual extends CollatingFunctionFixed {
     }
 
     /**
-     * Execute a dynamic call to the function
+     * Execute a call to the function
      *
      * @param context   the dynamic evaluation context
      * @param arguments the values of the arguments, supplied as Sequences.
@@ -875,18 +1106,21 @@ public class DeepEqual extends CollatingFunctionFixed {
 
     @Override
     public BooleanValue call(XPathContext context, Sequence[] arguments) throws XPathException {
-        Item arg3 = arguments.length >= 3 ? arguments[2].head() : null;
-        String collationName = arg3 == null ? getRetainedStaticContext().getDefaultCollationName() : arg3.getStringValue();
-
-        MapItem options  = new DictionaryMap();
-        if (arguments.length >= 4) {
-            MapItem suppliedOptions = (MapItem) arguments[3].head();
-            if (suppliedOptions != null) {
-                options = suppliedOptions;
-            }
+        Item optionsArg = arguments.length >= 3 ? arguments[2].head() : null;
+        MapItem options;
+        if (optionsArg == null) {
+            options = new SingleEntryMap(new StringValue("collation"),
+                                         new StringValue(getRetainedStaticContext().getDefaultCollationName()),
+                                         40);
+        } else if (optionsArg instanceof StringValue) {
+            options = new SingleEntryMap(new StringValue("collation"),
+                                         optionsArg,
+                                         40);
+        } else {
+            options = (MapItem) optionsArg;
         }
         //GenericAtomicComparer comparer = new GenericAtomicComparer(getStringCollator(), context);
-        DeepEqualOptions eqOptions = new DeepEqualOptions(options, collationName, context);
+        DeepEqualOptions eqOptions = new DeepEqualOptions(options, context, version);
         boolean b = deepEqual(arguments[0].iterate(), arguments[1].iterate(), context, eqOptions);
         return BooleanValue.get(b);
     }
@@ -896,64 +1130,64 @@ public class DeepEqual extends CollatingFunctionFixed {
         return "DeepEqual";
     }
 
-    private static class NormalizingComparer implements AtomicComparer {
-
-        private AtomicComparer baseComparer;
-        private DeepEqualOptions options;
-
-        public NormalizingComparer(AtomicComparer baseComparer, DeepEqualOptions options) {
-            this.baseComparer = baseComparer;
-            this.options = options;
-        }
-
-        @Override
-        public StringCollator getCollator() {
-            return baseComparer.getCollator();
-        }
-
-        @Override
-        public AtomicComparer provideContext(XPathContext context) {
-            baseComparer = baseComparer.provideContext(context);
-            return this; // TODO: thread safety?
-        }
-
-        @Override
-        public int compareAtomicValues(AtomicValue v0, AtomicValue v1) throws NoDynamicContextException {
-            return baseComparer.compareAtomicValues(v0, v1);
-        }
-
-        @Override
-        public boolean comparesEqual(AtomicValue v0, AtomicValue v1) throws NoDynamicContextException {
-            if (v0 instanceof StringValue && v1 instanceof StringValue) {
-                UnicodeString u0 = v0.getUnicodeStringValue();
-                UnicodeString u1 = v1.getUnicodeStringValue();
-                if (options.normalizeSpace) {
-                    u0 = Whitespace.collapseWhitespace(u0);
-                    u1 = Whitespace.collapseWhitespace(u1);
-                }
-                if (options.normalizationForm != null) {
-                    try {
-                        u0 = StringView.of(NormalizeUnicode.normalize(u0.toString(), options.normalizationForm));
-                    } catch (XPathException e) {
-                        throw new IllegalArgumentException(e);
-                    }
-                    try {
-                        u1 = StringView.of(NormalizeUnicode.normalize(u1.toString(), options.normalizationForm));
-                    } catch (XPathException e) {
-                        throw new IllegalArgumentException();
-                    }
-                }
-                return getCollator().comparesEqual(u0, u1);
-            } else {
-                return baseComparer.comparesEqual(v0, v1);
-            }
-        }
-
-        @Override
-        public String save() {
-            return null;
-        }
-    }
+//    private static class NormalizingComparer implements AtomicComparer {
+//
+//        private AtomicComparer baseComparer;
+//        private DeepEqualOptions options;
+//
+//        public NormalizingComparer(AtomicComparer baseComparer, DeepEqualOptions options) {
+//            this.baseComparer = baseComparer;
+//            this.options = options;
+//        }
+//
+//        @Override
+//        public StringCollator getCollator() {
+//            return baseComparer.getCollator();
+//        }
+//
+//        @Override
+//        public AtomicComparer provideContext(XPathContext context) {
+//            baseComparer = baseComparer.provideContext(context);
+//            return this; // TODO: thread safety?
+//        }
+//
+//        @Override
+//        public int compareAtomicValues(AtomicValue v0, AtomicValue v1) throws NoDynamicContextException {
+//            return baseComparer.compareAtomicValues(v0, v1);
+//        }
+//
+//        @Override
+//        public boolean comparesEqual(AtomicValue v0, AtomicValue v1) throws NoDynamicContextException {
+//            if (v0 instanceof StringValue && v1 instanceof StringValue) {
+//                UnicodeString u0 = v0.getUnicodeStringValue();
+//                UnicodeString u1 = v1.getUnicodeStringValue();
+//                if (options.normalizeSpace) {
+//                    u0 = Whitespace.collapseWhitespace(u0);
+//                    u1 = Whitespace.collapseWhitespace(u1);
+//                }
+//                if (options.normalizationForm != null) {
+//                    try {
+//                        u0 = StringView.of(NormalizeUnicode.normalize(u0.toString(), options.normalizationForm));
+//                    } catch (XPathException e) {
+//                        throw new IllegalArgumentException(e);
+//                    }
+//                    try {
+//                        u1 = StringView.of(NormalizeUnicode.normalize(u1.toString(), options.normalizationForm));
+//                    } catch (XPathException e) {
+//                        throw new IllegalArgumentException();
+//                    }
+//                }
+//                return getCollator().comparesEqual(u0, u1);
+//            } else {
+//                return baseComparer.comparesEqual(v0, v1);
+//            }
+//        }
+//
+//        @Override
+//        public String save() {
+//            return null;
+//        }
+//    }
 
 }
 

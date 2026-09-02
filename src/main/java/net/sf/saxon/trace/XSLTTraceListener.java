@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -10,7 +10,6 @@ package net.sf.saxon.trace;
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.LetExpression;
 import net.sf.saxon.expr.SystemFunctionCall;
-import net.sf.saxon.expr.accum.AccumulatorRule;
 import net.sf.saxon.expr.instruct.*;
 import net.sf.saxon.functions.Trace;
 import net.sf.saxon.lib.NamespaceConstant;
@@ -71,11 +70,9 @@ public class XSLTTraceListener extends AbstractTraceListener {
                 return "fn-trace";
             } else if (expr instanceof SystemFunctionCall) {
                 return "call";
-            } else {
+            } else  {
                 return expr.getExpressionName();
             }
-        } else if (info instanceof AccumulatorRule) {
-            return "xsl:accumulator";
         } else if (info instanceof UserFunction){
             return "xsl:function";
         } else if (info instanceof TemplateRule) {

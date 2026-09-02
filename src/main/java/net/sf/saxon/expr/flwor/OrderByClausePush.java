@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,10 @@ package net.sf.saxon.expr.flwor;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.sort.*;
+import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.ItemToBeSorted;
+import net.sf.saxon.expr.sort.SortKeyDefinitionList;
+import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.NoDynamicContextException;
 import net.sf.saxon.trans.XPathException;
 
@@ -27,7 +30,7 @@ public class OrderByClausePush extends TuplePush {
     private final AtomicComparer[] comparers;
     private final XPathContext context;
     private int position = 0;
-    private final ArrayList<ObjectToBeSorted> tupleArray = new ArrayList<>(100);
+    private final ArrayList<ItemToBeSorted> tupleArray = new ArrayList<>(100);
 
     public OrderByClausePush(Outputter outputter, TuplePush destination, TupleExpression tupleExpr, OrderByClause orderBy, XPathContext context) {
         super(outputter);
@@ -48,9 +51,9 @@ public class OrderByClausePush extends TuplePush {
      */
     @Override
     public void processTuple(XPathContext context) throws XPathException {
-        Tuple tuple = tupleExpr.evaluateItem(context);
+        FlworTuple<Sequence> tuple = tupleExpr.evaluateItem(context);
         SortKeyDefinitionList sortKeyDefinitions = orderByClause.getSortKeyDefinitions();
-        ObjectToBeSorted itbs = new ObjectToBeSorted(sortKeyDefinitions.size());
+        ItemToBeSorted itbs = new ItemToBeSorted(sortKeyDefinitions.size());
         itbs.value = tuple;
         for (int i = 0; i < sortKeyDefinitions.size(); i++) {
             itbs.sortKeyValues[i] = orderByClause.evaluateSortKey(i, context);
@@ -88,8 +91,8 @@ public class OrderByClausePush extends TuplePush {
             throw new XPathException("Non-comparable types found while sorting: " + e.getMessage(), "XPTY0004");
         }
 
-        for (ObjectToBeSorted itbs : tupleArray) {
-            tupleExpr.setCurrentTuple(context, (Tuple) itbs.value);
+        for (ItemToBeSorted itbs : tupleArray) {
+            tupleExpr.setCurrentTuple(context, (FlworTuple<Sequence>) itbs.value);
             destination.processTuple(context);
         }
         destination.close();

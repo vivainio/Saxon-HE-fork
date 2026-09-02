@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -17,12 +17,12 @@ import net.sf.saxon.transpile.CSharpReplaceBody;
 
 public final class Version {
     // For a release, these values are set automatically by the build script
-    private static final int MAJOR_VERSION = 12;
-    private static final int MINOR_VERSION = 9;
+    private static final int MAJOR_VERSION = 13;
+    private static final int MINOR_VERSION = 0;
     private static final int PATCH_VERSION = 0;
-    private static final int BUILD = 0x5ddb0f1;
-    private static final String MAJOR_RELEASE_DATE = "2023-01-12";
-    private static final String MINOR_RELEASE_DATE = "2025-09-12";
+    private static final int BUILD = 0xebc3d36;
+    private static final String MAJOR_RELEASE_DATE = "2026-05-28";
+    private static final String MINOR_RELEASE_DATE = "2026-05-28";
 
     private Version() {
         // class is never instantiated
@@ -37,6 +37,11 @@ public final class Version {
 
     public static String getProductName() {
         return "SAXON";
+    }
+
+
+    public static String getProductNameTitleCase() {
+        return "Saxon";
     }
 
     /**
@@ -67,25 +72,21 @@ public final class Version {
      */
 
     public static String getProductVersion() {
-        if (PATCH_VERSION == 0) {
-            return MAJOR_VERSION + "." + MINOR_VERSION;
-        }
-        return MAJOR_VERSION + "." + MINOR_VERSION + "." + PATCH_VERSION;
+        return MAJOR_VERSION + "." + MINOR_VERSION;
     }
 
     /**
      * Get the components of the structured version number. This is used in the .NET product
      * to locate an assembly in the dynamic assembly cache; it is also used by XQJ. The caller can assume
-     * that there will always be at least two components. The current implementation in Saxon 12
-     * returns [12, n, b, p] where n is the minor version number (initially 0, incremented for each
-     * maintenance release), b is the build number, which is typically a six-digit number, and
-     * p is the patch number (initially 0, incremented for each patch release).
+     * that there will always be at least two components. The current implementation in Saxon 10
+     * returns [10, n, b] where n is the minor version number (initially 0, incremented for each
+     * maintenance release), and b is the build number, which is typically a six-digit number.
      *
-     * @return the four components of the version number, as an array: for example {12, 4, 120112, 1}
+     * @return the three components of the version number, as an array: for example {9, 0, 1, 1}
      */
 
     public static int[] getStructuredVersionNumber() {
-        return new int[]{MAJOR_VERSION, MINOR_VERSION, BUILD, PATCH_VERSION};
+        return new int[]{MAJOR_VERSION, MINOR_VERSION, BUILD};
     }
 
     /**
@@ -119,7 +120,7 @@ public final class Version {
      */
 
     public static String getProductTitle() {
-        return getProductName() + '-' + getSoftwarePlatform() + '-' + softwareEdition + ' ' +
+        return getProductNameTitleCase() + getSoftwarePlatform() + '-' + softwareEdition + ' ' +
             getProductVersion()  + " from Saxonica";
     }
 
@@ -136,11 +137,13 @@ public final class Version {
     /**
      * Return a web site address containing information about the product. Supports the XSLT system property xsl:vendor-url
      *
-     * @return the string "http://www.saxonica.com/"
+     * @return the string <code>https://www.saxonica.com/</code>. In Saxon 12.x and earlier the returned value was
+     * <code>http://www.saxonica.com/</code>
+     *
      */
 
     public static String getWebSiteAddress() {
-        return "http://www.saxonica.com/";
+        return "https://www.saxonica.com/";
     }
 
     /**

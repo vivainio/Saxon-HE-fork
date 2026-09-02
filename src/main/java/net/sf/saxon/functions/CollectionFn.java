@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -22,6 +22,7 @@ import net.sf.saxon.trans.UncheckedXPathException;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.transpile.CSharpInjectMembers;
 import net.sf.saxon.transpile.CSharpReplaceBody;
+import net.sf.saxon.transpile.CSharpSuppressWarnings;
 import net.sf.saxon.tree.wrapper.SpaceStrippedDocument;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.ObjectValue;
@@ -92,8 +93,7 @@ public class CollectionFn extends SystemFunction implements Callable {
         return (super.getSpecialProperties(arguments) & ~StaticProperty.NO_NODES_NEWLY_CREATED) | StaticProperty.PEER_NODESET;
     }
 
-    public static String getAbsoluteCollectionURI(String baseUri, String href, XPathContext context)
-            throws XPathException {
+    public static String getAbsoluteCollectionURI(String baseUri, String href, XPathContext context) throws XPathException {
         String absoluteURI;
         if (href == null) {
             absoluteURI = context.getConfiguration().getDefaultCollection();
@@ -167,6 +167,7 @@ public class CollectionFn extends SystemFunction implements Callable {
         }
 
         @Override
+        @CSharpSuppressWarnings("UnsafeIteratorConversion")
         public Item next() {
             if (sources.hasNext()) {
                 return new ObjectValue<Resource>(sources.next(), Resource.class);
@@ -225,11 +226,11 @@ public class CollectionFn extends SystemFunction implements Callable {
         // See if the collection has been cached
 
         PackageData packageData = getRetainedStaticContext().getPackageData();
-        SpaceStrippingRule whitespaceRule = NoElementsSpaceStrippingRule.getInstance();
+        SpaceStrippingRule whitespaceRule = NoElementsSpaceStrippingRule.INSTANCE;
         String collectionKey = absoluteURI;
         if (packageData.isXSLT()) {
             whitespaceRule = ((StylesheetPackage) packageData).getSpaceStrippingRule();
-            if (whitespaceRule != NoElementsSpaceStrippingRule.getInstance()) {
+            if (whitespaceRule != NoElementsSpaceStrippingRule.INSTANCE) {
                 collectionKey = ((StylesheetPackage) packageData).getPackageName() +
                         ((StylesheetPackage) packageData).getPackageVersion() +
                         " " +
@@ -261,11 +262,13 @@ public class CollectionFn extends SystemFunction implements Callable {
 
         // In XSLT, worry about whitespace stripping
 
-        if (packageData instanceof StylesheetPackage && whitespaceRule != NoElementsSpaceStrippingRule.getInstance()) {
-            if (collection instanceof AbstractResourceCollection) {
-                boolean alreadyStripped = ((AbstractResourceCollection)collection).stripWhitespace(whitespaceRule);
-                if (alreadyStripped) {
-                    whitespaceRule = null;
+        if (packageData instanceof StylesheetPackage) {
+            if (whitespaceRule != NoElementsSpaceStrippingRule.INSTANCE) {
+                if (collection instanceof AbstractResourceCollection) {
+                    boolean alreadyStripped = ((AbstractResourceCollection) collection).stripWhitespace(whitespaceRule);
+                    if (alreadyStripped) {
+                        whitespaceRule = null;
+                    }
                 }
             }
         }

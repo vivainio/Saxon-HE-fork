@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -19,10 +19,13 @@ import net.sf.saxon.lib.Logger;
 import net.sf.saxon.lib.StandardDiagnostics;
 import net.sf.saxon.lib.StandardLogger;
 import net.sf.saxon.lib.TraceListener;
+import net.sf.saxon.ma.arrays.ArrayItem;
+import net.sf.saxon.ma.map.MapItem;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.Location;
+import net.sf.saxon.trans.Err;
 import net.sf.saxon.trans.Mode;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.AttributeLocation;
@@ -42,7 +45,7 @@ import java.util.Stack;
 public abstract class AbstractTraceListener extends StandardDiagnostics implements TraceListener {
     protected int indent = 0;
     protected int detail = TraceLevel.NORMAL;
-    protected Logger out = new StandardLogger();
+    protected Logger out = StandardLogger.makeLogger();
     private Stack<Object> stack = new Stack<>();
     /*@NotNull*/ private static final StringBuilder spaceBuffer = new StringBuilder("                ");
 
@@ -57,7 +60,7 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
     }
 
     /**
-     * Called at start of a transformation
+     * Called at start
      */
 
     @Override
@@ -72,7 +75,7 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
     }
 
     /**
-     * Called at end of a transformation
+     * Called at end
      */
 
     @Override
@@ -109,7 +112,10 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
                 }
             }
 
-            msg.append(" line=\"").append(loc.getLineNumber()).append('"');
+            int line = loc.getLineNumber();
+            if (line >= 0) {
+                msg.append(" line=\"").append(loc.getLineNumber()).append('"');
+            }
 
             int col = loc.getColumnNumber();
             if (col >= 0) {
@@ -123,18 +129,20 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
         }
     }
 
+
     /**
      * Get the location information for the traceble expression or instruction.
      * This method adjusts the location for XPath expressions contained in attributes
      * of XSLT instructions, to give the location of the containing element, which
      * supplies a simple line number and column number.
+     *
      * @param info the traceable whose location is required
      * @return a sanitised Location object
      */
     public static Location getLocation(Traceable info) {
         Location rawLocation = info.getLocation();
         if (rawLocation instanceof XPathParser.NestedLocation) {
-            Location container = ((XPathParser.NestedLocation)rawLocation).getContainingLocation();
+            Location container = ((XPathParser.NestedLocation) rawLocation).getContainingLocation();
             if (container instanceof AttributeLocation) {
                 return container;
             }
@@ -209,15 +217,17 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
         return "expr";
     }
 
+
     protected int level(Traceable info) {
         if (info instanceof TraceableComponent || info instanceof ApplyTemplates || info instanceof CallTemplate) {
             return 1;
         }
         if (info instanceof Expression &&
-                (((Expression) info).isInstruction() || ((Expression) info).isCallOn(TransformFn.class))) {
+                (((Expression)info).isInstruction() || ((Expression) info).isCallOn(TransformFn.class))) {
             return 2;
+        } else {
+            return 3;
         }
-        return 3;
     }
 
     /**
@@ -231,10 +241,17 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
             NodeInfo curr = (NodeInfo) item;
             out.info(AbstractTraceListener.spaces(indent) + "<source node=\"" + Navigator.getPath(curr)
                     + "\" line=\"" + curr.getLineNumber()
+                    + "\" column=\"" + curr.getColumnNumber()
                     + "\" file=\"" + abbreviateLocationURI(curr.getSystemId())
                     + "\">");
+            indent++;
+        } else if ((item instanceof MapItem) && detail > 0) {
+            stack.push(item);
+            out.info(AbstractTraceListener.spaces(indent) + "<source map='" + Err.depict(item) + "'>");
+        } else if ((item instanceof ArrayItem) && detail > 0) {
+            stack.push(item);
+            out.info(AbstractTraceListener.spaces(indent) + "<source array='" + Err.depict(item) + "'>");
         }
-        indent++;
     }
 
     /**
@@ -243,11 +260,17 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
 
     @Override
     public void endCurrentItem(Item item) {
-        indent--;
         if (item instanceof NodeInfo && detail > 0) {
+            indent--;
             NodeInfo curr = (NodeInfo) item;
             out.info(AbstractTraceListener.spaces(indent) + "</source><!-- " +
                     Navigator.getPath(curr) + " -->");
+            stack.pop();
+        } else if ((item instanceof MapItem) && detail > 0) {
+            out.info(AbstractTraceListener.spaces(indent) + "</source><!-- map -->");
+            stack.pop();
+        } else if ((item instanceof ArrayItem) && detail > 0) {
+            out.info(AbstractTraceListener.spaces(indent) + "</source><!-- array -->");
             stack.pop();
         }
     }
@@ -264,26 +287,6 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
             spaceBuffer.append(AbstractTraceListener.spaceBuffer);
         }
         return spaceBuffer.substring(0, n);
-    }
-
-    /**
-     * Set the output destination (default is System.err)
-     *
-     * @param stream the output destination for tracing output
-     */
-
-    @Override
-    public void setOutputDestination(Logger stream) {
-        out = stream;
-    }
-
-    /**
-     * Get the output destination
-     * @return the output destination for tracing output
-     */
-
-    public Logger getOutputDestination() {
-        return out;
     }
 
     /**
@@ -304,8 +307,9 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
      * Method called when an error is caught by an {@code xsl:catch} (or XQuery try/catch).
      *
      * @param checkpoint A checkpoint object returned by a previous call to the {@link #checkpoint} method.
-     * @param error      The error that was caught
+     * @param error The error that was caught
      */
+
     @Override
     public void recover(Object checkpoint, XPathException error) {
         out.info(AbstractTraceListener.spaces(indent) + "<error code='"
@@ -324,6 +328,27 @@ public abstract class AbstractTraceListener extends StandardDiagnostics implemen
             }
         }
         out.info(AbstractTraceListener.spaces(indent) + "<catch/>");
+    }
+
+
+    /**
+     * Set the output destination (default is System.err)
+     *
+     * @param stream the output destination for tracing output
+     */
+
+    @Override
+    public void setOutputDestination(Logger stream) {
+        out = stream;
+    }
+
+    /**
+     * Get the output destination
+     * @return the output destination for tracing output
+     */
+
+    public Logger getOutputDestination() {
+        return out;
     }
 
     /**

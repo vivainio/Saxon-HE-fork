@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -579,14 +579,14 @@ public abstract class StringConverter extends Converter {
             if (iv instanceof Int64Value) {
                 boolean ok = IntegerValue.checkRange(((Int64Value) iv).longValue(), targetType);
                 if (ok) {
-                    return ((Int64Value) iv).copyAsSubType(targetType);
+                    return ((Int64Value) iv).withMetadata(targetType);
                 } else {
                     return new ValidationFailure("Integer value is out of range for type " + targetType);
                 }
             } else if (iv instanceof BigIntegerValue) {
                 boolean ok = IntegerValue.checkBigRange(((BigIntegerValue) iv).asBigInteger(), targetType);
                 if (ok) {
-                    return ((BigIntegerValue) iv).copyAsSubType(targetType);
+                    return ((BigIntegerValue) iv).withMetadata(targetType);
                 } else {
                     return new ValidationFailure("Integer value is out of range for type " + targetType);
                 }
@@ -670,7 +670,7 @@ public abstract class StringConverter extends Converter {
                 if (!((DateTimeValue) val).hasTimezone()) {
                     return new ValidationFailure("Supplied DateTimeStamp value " + input + " has no time zone");
                 } else {
-                    val = ((DateTimeValue) val).copyAsSubType(BuiltInAtomicType.DATE_TIME_STAMP);
+                    val = ((DateTimeValue) val).withMetadata(BuiltInAtomicType.DATE_TIME_STAMP);
                 }
             }
             return val;
@@ -689,7 +689,7 @@ public abstract class StringConverter extends Converter {
         
         @Override
         public ConversionResult convertString(UnicodeString input) {
-            return DateValue.makeDateValue(input, getConversionRules());
+            return DateValue.tryParseDate(input.toString(), getConversionRules().isAllowYearZero());
         }
     }
 
@@ -910,12 +910,14 @@ public abstract class StringConverter extends Converter {
                 if (uri == null) {
                     return new ValidationFailure("Namespace prefix " + Err.wrap(parts[0]) + " has not been declared");
                 }
-                // This check added in 9.3. The XSLT spec says that this check should not be performed during
-                // validation. However, this appears to be based on an incorrect assumption: see spec bug 6952
-                if (!getConversionRules().isDeclaredNotation(uri, parts[1])) {
-                    //System.err.println(getConversionRules().isDeclaredNotation(uri, parts[1]));
-                    return new ValidationFailure("Notation {" + uri + "}" + parts[1] + " is not declared in the schema");
-                }
+                // No need to check that this is a declared notation. That is only needed when checking the
+                // emumeration facet of a type derived from xs:NOTATION, and that is handled by the schema compiler.
+//                // This check added in 9.3. The XSLT spec says that this check should not be performed during
+//                // validation. However, this appears to be based on an incorrect assumption: see spec bug 6952
+//                if (!getConversionRules().isDeclaredNotation(uri, parts[1])) {
+//                    //System.err.println(getConversionRules().isDeclaredNotation(uri, parts[1]));
+//                    return new ValidationFailure("Notation {" + uri + "}" + parts[1] + " is not declared in the schema");
+//                }
                 return new NotationValue(parts[0], uri, parts[1], false);
             } catch (QNameException err) {
                 return new ValidationFailure("Invalid lexical QName " + Err.wrap(input));

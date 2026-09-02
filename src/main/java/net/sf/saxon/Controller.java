@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -12,12 +12,8 @@ import net.sf.saxon.expr.ContextOriginator;
 import net.sf.saxon.expr.PackageData;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.expr.XPathContextMajor;
-import net.sf.saxon.expr.instruct.Bindery;
-import net.sf.saxon.expr.instruct.Executable;
-import net.sf.saxon.expr.instruct.GlobalParameterSet;
-import net.sf.saxon.expr.instruct.GlobalVariable;
+import net.sf.saxon.expr.instruct.*;
 import net.sf.saxon.expr.parser.Loc;
-import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.sort.GroupIterator;
 import net.sf.saxon.functions.AccessorFn;
 import net.sf.saxon.lib.*;
@@ -39,6 +35,7 @@ import net.sf.saxon.tree.wrapper.TypeStrippedDocument;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.type.Untyped;
 import net.sf.saxon.value.DateTimeValue;
+import net.sf.saxon.value.SequenceExtent;
 import net.sf.saxon.value.SequenceType;
 import net.sf.saxon.z.IntHashMap;
 import org.xml.sax.SAXParseException;
@@ -49,7 +46,10 @@ import javax.xml.transform.sax.SAXSource;
 import javax.xml.transform.stream.StreamSource;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -89,8 +89,8 @@ public class Controller implements ContextOriginator {
     private final Configuration config;
     protected Executable executable;
 
-    protected Item globalContextItem;
-    private boolean globalContextItemPreset;
+    protected GroundedValue globalContextValue;
+    private boolean globalContextValuePreset;
     private Map<PackageData, Bindery> binderies;
     private GlobalParameterSet globalParameters;
     private boolean convertParameters = true;
@@ -112,7 +112,6 @@ public class Controller implements ContextOriginator {
     private int lastRememberedNumber = -1;
     private DateTimeValue currentDateTime;
     private boolean dateTimePreset = false;
-    private PathMap pathMap = null;
     protected int validationMode = Validation.DEFAULT;
     protected boolean inUse = false;
     private boolean stripSourceTrees = true;
@@ -203,7 +202,7 @@ public class Controller implements ContextOriginator {
 
         setModel(config.getParseOptions().getModel());
 
-        globalContextItem = null;
+        globalContextValue = null;
         currentDateTime = null;
         dateTimePreset = false;
         clearPerTransformationData();
@@ -215,15 +214,17 @@ public class Controller implements ContextOriginator {
      */
 
     protected synchronized void clearPerTransformationData() {
-        userDataTable = new HashMap<>(20);
+        if (userDataTable == null || !userDataTable.isEmpty()) {
+            userDataTable = new HashMap<>(20);
+        }
         principalResult = null;
         tracingPaused = false;
         lastRememberedNode = null;
         lastRememberedNumber = -1;
         stylesheetCache = null;
         localIndexes = null;
-        if (!globalContextItemPreset) {
-            globalContextItem = null;
+        if (!globalContextValuePreset) {
+            globalContextValue = null;
         }
     }
 
@@ -266,8 +267,9 @@ public class Controller implements ContextOriginator {
 
     public GroundedValue getConvertedParameter(StructuredQName name, SequenceType requiredType, XPathContext context)
             throws XPathException {
+        int version = getExecutable().getTopLevelPackage().getHostLanguageVersion();
         GroundedValue val =
-                globalParameters.convertParameterValue(name, requiredType, convertParameters, context);
+                globalParameters.convertParameterValue(name, requiredType, convertParameters ? version : 0, context);
         if (val != null) {
 
             // Check that any nodes belong to the right configuration
@@ -568,7 +570,7 @@ public class Controller implements ContextOriginator {
     public void setGlobalContextItem(Item contextItem, boolean alreadyStripped) throws XPathException {
         if (!alreadyStripped) {
             // Bug 2929 - don't do space-stripping twice
-            if (globalContextItem instanceof SpaceStrippedNode && ((SpaceStrippedNode) globalContextItem).getUnderlyingNode() == contextItem) {
+            if (globalContextValue instanceof SpaceStrippedNode && ((SpaceStrippedNode) globalContextValue).getUnderlyingNode() == contextItem) {
                 return;
             }
             if (contextItem instanceof NodeInfo) {
@@ -601,8 +603,8 @@ public class Controller implements ContextOriginator {
             }
         }
 
-        this.globalContextItem = contextItem;
-        this.globalContextItemPreset = true;
+        this.globalContextValue = contextItem;
+        this.globalContextValuePreset = true;
     }
 
     /**
@@ -611,8 +613,8 @@ public class Controller implements ContextOriginator {
      */
 
     public void clearGlobalContextItem() {
-        this.globalContextItem = null;
-        this.globalContextItemPreset = false;
+        this.globalContextValue = null;
+        this.globalContextValuePreset = false;
     }
 
 
@@ -627,12 +629,34 @@ public class Controller implements ContextOriginator {
 
     /*@Nullable*/
     public Item getGlobalContextItem() {
-        return globalContextItem;
-        // See W3C bug 5224, which points out that the rules for XQuery 1.0 weren't clearly defined
+        if (globalContextValue == null) {
+            return null;
+        }
+        if (globalContextValue.getLength() == 1) {
+            return globalContextValue.head();
+        } else {
+            throw new IllegalStateException("Global context value is not a single item");
+        }
+        // See also W3C bug 5224, which points out that the rules for XQuery 1.0 weren't clearly defined
     }
 
     /**
-     * Set an object that will be used to resolve URIs used in
+     * Get the value used as the context value for evaluating global variables. In XQuery this
+     * is the same as the initial context value; in XSLT 1.0 and 2.0 it is the root of the tree containing
+     * the initial context node; in XSLT 3.0 it can be set independently of the initial match selection.
+     * XQuery 4.0 allows an arbitrary value; XSLT, and earlier XQuery releases, require a single item.
+     *
+     * @return the context item for evaluating global variables, or null if there is none
+     * @since 9.7
+     */
+
+    /*@Nullable*/
+    public GroundedValue getGlobalContextValue() {
+        return globalContextValue;
+    }
+
+    /**
+     * Set a resolver callback that will be used to resolve URIs used in
      * document(), etc.
      *
      * @param resolver An object that implements the ResourceResolver interface, or
@@ -644,10 +668,7 @@ public class Controller implements ContextOriginator {
     }
 
     /**
-     * Get the URI resolver.
-     * <p><i>This method changed in Saxon 8.5, to conform to the JAXP specification. If there
-     * is no user-specified URIResolver, it now returns null; previously it returned the system
-     * default URIResolver.</i></p>
+     * Get the resource resolver.
      *
      * @return the user-supplied URI resolver if there is one, or null otherwise.
      */
@@ -863,8 +884,7 @@ public class Controller implements ContextOriginator {
     protected boolean isStylesheetContainingStripSpace() {
         SpaceStrippingRule rule;
         return executable instanceof PreparedStylesheet &&
-                (rule = ((PreparedStylesheet) executable).getTopLevelPackage().getSpaceStrippingRule()) != null &&
-                rule != NoElementsSpaceStrippingRule.getInstance();
+                (rule = ((PreparedStylesheet) executable).getTopLevelPackage().getSpaceStrippingRule()) != null && rule != NoElementsSpaceStrippingRule.INSTANCE;
     }
 
     /**
@@ -913,15 +933,15 @@ public class Controller implements ContextOriginator {
      */
 
     public SpaceStrippingRule getSpaceStrippingRule() {
-        if (config.getParseOptions().getSpaceStrippingRule() == AllElementsSpaceStrippingRule.getInstance()) {
-            return AllElementsSpaceStrippingRule.getInstance();
+        if (config.getParseOptions().getSpaceStrippingRule() == AllElementsSpaceStrippingRule.INSTANCE) {
+            return AllElementsSpaceStrippingRule.INSTANCE;
         } else if (executable instanceof PreparedStylesheet) {
             SpaceStrippingRule rule = ((PreparedStylesheet) executable).getTopLevelPackage().getSpaceStrippingRule();
             if (rule != null) {
                 return rule;
             }
         }
-        return NoElementsSpaceStrippingRule.getInstance();
+        return NoElementsSpaceStrippingRule.INSTANCE;
     }
 
     /**
@@ -936,21 +956,23 @@ public class Controller implements ContextOriginator {
      * @throws XPathException if an error occurs
      */
     public void registerDocument(TreeInfo doc, DocumentKey uri) throws XPathException {
-        if (!getExecutable().isSchemaAware() && !Untyped.getInstance().equals(doc.getRootNode().getSchemaType())) {
-            boolean isXSLT = getExecutable().getHostLanguage() == HostLanguage.XSLT;
-            String message;
-            if (isXSLT) {
-                message = "The source document has been schema-validated, but" +
-                        " the stylesheet is not schema-aware. A stylesheet is schema-aware if" +
-                        " either (a) it contains an xsl:import-schema declaration, or (b) the stylesheet compiler" +
-                        " was configured to be schema-aware.";
-            } else {
-                message = "The source document has been schema-validated, but" +
-                        " the query is not schema-aware. A query is schema-aware if" +
-                        " either (a) it contains an 'import schema' declaration, or (b) the query compiler" +
-                        " was configured to be schema-aware.";
+        if (!getExecutable().isSchemaAware()) {
+            if (!Untyped.INSTANCE.equals(doc.getRootNode().getSchemaType())) {
+                boolean isXSLT = getExecutable().getHostLanguage() == HostLanguage.XSLT;
+                String message;
+                if (isXSLT) {
+                    message = "The source document has been schema-validated, but" +
+                            " the stylesheet is not schema-aware. A stylesheet is schema-aware if" +
+                            " either (a) it contains an xsl:import-schema declaration, or (b) the stylesheet compiler" +
+                            " was configured to be schema-aware.";
+                } else {
+                    message = "The source document has been schema-validated, but" +
+                            " the query is not schema-aware. A query is schema-aware if" +
+                            " either (a) it contains an 'import schema' declaration, or (b) the query compiler" +
+                            " was configured to be schema-aware.";
+                }
+                throw new XPathException(message);
             }
-            throw new XPathException(message);
         }
         if (uri != null) {
             sourceDocumentPool.add(doc, uri);
@@ -1052,18 +1074,6 @@ public class Controller implements ContextOriginator {
         }
     }
 
-    public void openTraceEpisode() {
-        if (traceListener != null) {
-            traceListener.open(this);
-        }
-    }
-
-    public void closeTraceEpisode() {
-        if (traceListener != null) {
-            traceListener.close();
-        }
-    }
-
     /**
      * Removes the specified trace listener so that the listener will no longer
      * receive trace events.
@@ -1074,6 +1084,19 @@ public class Controller implements ContextOriginator {
 
     public void removeTraceListener(TraceListener trace) {
         traceListener = TraceEventMulticaster.remove(traceListener, trace);
+    }
+
+
+    public void openTraceEpisode() {
+        if (traceListener != null) {
+            traceListener.open(this);
+        }
+    }
+
+    public void closeTraceEpisode() {
+        if (traceListener != null) {
+            traceListener.close();
+        }
     }
 
     /**
@@ -1134,10 +1157,16 @@ public class Controller implements ContextOriginator {
 
         // Check the global context item
 
-        globalContextItem = executable.checkInitialContextItem(globalContextItem, newXPathContext());
+        GlobalContextRequirement gcr = executable.getGlobalContextRequirement();
+        if (gcr != null && globalContextValue == null && gcr.getDefaultValue() != null) {
+            SequenceIterator iter = gcr.getDefaultValue().iterate(newXPathContext());
+            globalContextValue = SequenceExtent.from(iter);
+        }
+
+        globalContextValue = executable.checkInitialContextValue(globalContextValue, newXPathContext());
+
 
         if (traceListener != null) {
-            //traceListener.open(this);
             preEvaluateGlobals(newXPathContext());
         }
     }
@@ -1300,7 +1329,7 @@ public class Controller implements ContextOriginator {
             ((TinyBuilder) sourceBuilder).setStatistics(config.getTreeStatistics().SOURCE_DOCUMENT_STATISTICS);
         }
         Receiver r = sourceBuilder;
-        SpaceStrippingRule spaceStrippingRule = NoElementsSpaceStrippingRule.getInstance();
+        SpaceStrippingRule spaceStrippingRule = NoElementsSpaceStrippingRule.INSTANCE;
         if (config.isStripsAllWhiteSpace() || isStylesheetContainingStripSpace() ||
                 validationMode == Validation.STRICT || validationMode == Validation.LAX) {
             r = makeStripper(sourceBuilder);
@@ -1357,7 +1386,7 @@ public class Controller implements ContextOriginator {
             if (docInfo.getSpaceStrippingRule() != spaceStrippingRule) {  // if not already space-stripped
                 SpaceStrippedDocument strippedDoc = new SpaceStrippedDocument(docInfo, spaceStrippingRule);
                 // Edge case: the global context item might itself be a whitespace text node that is stripped
-                if (!SpaceStrippedNode.isPreservedNode(start, strippedDoc, start.getParent())) {
+                if (!SpaceStrippedNode.isPreservedNode(start, strippedDoc, (NodeInfo)start.getParent())) {
                     return null;
                 }
                 start = strippedDoc.wrap(start);
@@ -1402,14 +1431,14 @@ public class Controller implements ContextOriginator {
     @SuppressWarnings("Java8MapApi")
     public synchronized void registerGlobalVariableDependency(GlobalVariable one, GlobalVariable two) throws XPathException {
         if (one == two) {
-            throw new XPathException.Circularity("Circular dependency among global variables: "
+            throw new XPathException.Circularity("Circular dependency among global variables: $"
                                                          + one.getVariableQName().getDisplayName() + " depends on its own value");
         }
         Set<GlobalVariable> transitiveDependencies = globalVariableDependencies.get(two);
         if (transitiveDependencies != null) {
             if (transitiveDependencies.contains(one)) {
-                throw new XPathException.Circularity("Circular dependency among variables: "
-                                                             + one.getVariableQName().getDisplayName() + " depends on the value of "
+                throw new XPathException.Circularity("Circular dependency among variables: $"
+                                                             + one.getVariableQName().getDisplayName() + " depends on the value of $"
                                                              + two.getVariableQName().getDisplayName() + ", which depends directly or indirectly on the value of "
                                                              + one.getVariableQName().getDisplayName());
             }
@@ -1503,29 +1532,6 @@ public class Controller implements ContextOriginator {
     }
 
     /**
-     * Indicate whether document projection should be used, and supply the PathMap used to control it.
-     * Note: this is available only under Saxon-EE.
-     *
-     * @param pathMap a path map to be used for projecting source documents
-     */
-
-    public void setUseDocumentProjection(PathMap pathMap) {
-        this.pathMap = pathMap;
-    }
-
-    /**
-     * Get the path map used for document projection, if any.
-     *
-     * @return the path map to be used for document projection, if one has been supplied; otherwise null
-     */
-
-    /*@Nullable*/
-    public PathMap getPathMapForDocumentProjection() {
-        return pathMap;
-    }
-
-
-    /**
      * Get the cache of stylesheets (cached during calls on fn:transform()) for this query or transformation.
      *
      * @return the stylesheet cache
@@ -1549,9 +1555,9 @@ public class Controller implements ContextOriginator {
      */
 
     public Function<SequenceIterator, FocusTrackingIterator> getFocusTrackerFactory(boolean multithreaded) {
-        return multithreaded && multiThreadedFocusTrackerFactory != null ?
-                multiThreadedFocusTrackerFactory :
-                focusTrackerFactory;
+        return //multithreaded && multiThreadedFocusTrackerFactory != null ?
+                multiThreadedFocusTrackerFactory; //:
+                //focusTrackerFactory;
     }
 
     /**

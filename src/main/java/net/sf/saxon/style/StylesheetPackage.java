@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -18,10 +18,8 @@ import net.sf.saxon.functions.FunctionLibrary;
 import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.registry.ConstructorFunctionLibrary;
 import net.sf.saxon.om.Action;
-import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.SpaceStrippingRule;
 import net.sf.saxon.om.StructuredQName;
-import net.sf.saxon.pattern.NodeTest;
 import net.sf.saxon.query.XQueryFunctionLibrary;
 import net.sf.saxon.s9api.HostLanguage;
 import net.sf.saxon.s9api.Location;
@@ -66,9 +64,6 @@ public class StylesheetPackage extends PackageData {
     private StructuredQName defaultMode;
     private boolean declaredModes;
     protected Map<StructuredQName, Properties> namedOutputProperties = new HashMap<>(4);
-
-    // table of imported schemas. The members of this set are strings holding the target namespace.
-    protected Set<NamespaceUri> schemaIndex = new HashSet<>(10);
 
     private FunctionLibraryList functionLibrary;
     private XQueryFunctionLibrary queryFunctions;
@@ -410,16 +405,7 @@ public class StylesheetPackage extends PackageData {
     public Properties getNamedOutputProperties(StructuredQName name) {
         return namedOutputProperties.get(name);
     }
-
-    /**
-     * Get the set of namespaces of schema declarations imported into this package
-     * @return the set of imported namespaces
-     */
-
-    public Set<NamespaceUri> getSchemaNamespaces() {
-        return schemaIndex;
-    }
-
+    
     /**
      * Set the required context item type. Used when there is an xsl:global-context-item child element
      * @param requirement details of the requirement for the global context item
@@ -429,8 +415,7 @@ public class StylesheetPackage extends PackageData {
     public void setContextItemRequirements(GlobalContextRequirement requirement) throws XPathException {
         if (containsGlobalContextItemDeclaration) {
             // the new requirements must be consistent with the existing requirements
-            if ((!requirement.isAbsentFocus() && globalContextRequirement.isAbsentFocus()) ||
-                    (requirement.isMayBeOmitted() && !globalContextRequirement.isMayBeOmitted())) {
+            if ((requirement.getContextValueOptionality() != globalContextRequirement.getContextValueOptionality())) {
                 throw new XPathException(
                         "The package contains two xsl:global-context-item declarations with conflicting @use attributes", "XTSE3087");
             }
@@ -522,14 +507,10 @@ public class StylesheetPackage extends PackageData {
      */
 
     private void registerGlobalVariable(Component c, SlotManager slotManager) {
-        if (c.getActor() instanceof GlobalVariable) {
-            GlobalVariable var = (GlobalVariable) c.getActor();
+        if (c.getActor() instanceof GlobalVariable var) {
             int slot = slotManager.allocateSlotNumber(var.getVariableQName(), null);
             var.setPackageData(this);
             var.setBinderySlotNumber(slot);
-//            if (c.getVisibility() != Visibility.HIDDEN) {
-//                addGlobalVariable(var);
-//            }
         }
     }
 
@@ -588,9 +569,6 @@ public class StylesheetPackage extends PackageData {
         return componentIndex.get(name);
     }
 
-//    public Component getHiddenComponent(SymbolicName name) {
-//        return hiddenComponents.get(name);
-//    }
 
     public void addHiddenComponent(Component component) {
         hiddenComponents.add(component);
@@ -815,7 +793,7 @@ public class StylesheetPackage extends PackageData {
         Visibility vis = Visibility.UNDEFINED;
         for (XSLAccept acceptor : acceptors) {
             for (ComponentTest test : acceptor.getWildcardComponentTests()) {
-                if (((NodeTest) test.getQNameTest()).getDefaultPriority() == -0.25 && test.matches(name)) {
+                if (test.isPartialWildcard() && test.matches(name)) {
                     vis = acceptor.getVisibility();
                 }
             }
@@ -988,7 +966,7 @@ public class StylesheetPackage extends PackageData {
         }
 
         pss.setTopLevelPackage(this);
-        if (isSchemaAware() || !schemaIndex.isEmpty()) {
+        if (isSchemaAware()) {
             pss.setSchemaAware(true);
         }
         pss.setHostLanguage(HostLanguage.XSLT);

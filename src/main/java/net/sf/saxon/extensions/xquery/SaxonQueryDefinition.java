@@ -172,13 +172,13 @@ public final class SaxonQueryDefinition extends ExtensionFunctionDefinition {
                     if (bindingsHead instanceof MapItem) {
                         MapItem bindings = (MapItem) bindingsHead;
                         for (KeyValuePair kv : bindings.keyValuePairs()) {
-                            String lex = kv.key.getStringValue();
+                            String lex = kv.key().getStringValue();
                             StructuredQName q = StructuredQName.fromLexicalQName(
-                                    lex, /*useDefault*/ false, /*allowEQName*/ true,
+                                    lex, /*useDefault*/ false, StructuredQName.QUL,
                                     callerNamespaces);
                             evaluator.setExternalVariable(
                                     new QName(q),
-                                    XdmValue.wrap(kv.value));
+                                    XdmValue.wrap(kv.value()));
                         }
                     }
                 }

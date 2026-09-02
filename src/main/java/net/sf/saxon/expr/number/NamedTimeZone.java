@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,7 +8,7 @@
 package net.sf.saxon.expr.number;
 
 
-import net.sf.saxon.str.UnicodeBuilder;
+import net.sf.saxon.str.TwineBuilder;
 import net.sf.saxon.transpile.CSharpReplaceBody;
 import net.sf.saxon.transpile.CSharpReplaceException;
 import net.sf.saxon.value.CalendarValue;
@@ -391,9 +391,9 @@ public class NamedTimeZone {
      */
 
     public static String formatTimeZoneOffset(DateTimeValue timeValue) {
-        UnicodeBuilder sb = new UnicodeBuilder(16);
-        CalendarValue.appendTimezone(timeValue.getTimezoneInMinutes(), sb);
-        return sb.toString();
+        TwineBuilder tb = TwineBuilder.make(16);;
+        tb = CalendarValue.appendTimezone(timeValue.getTimezoneInMinutes(), tb);
+        return tb.toString();
     }
 
     /**

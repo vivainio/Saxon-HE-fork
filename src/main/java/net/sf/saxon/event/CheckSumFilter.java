@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -32,7 +32,7 @@ import java.util.HashMap;
 
 public class CheckSumFilter extends ProxyReceiver {
     private final static boolean DEBUG = false;
-    private DigestMaker digest = null;
+    private final DigestMaker digest;
     private int checksum = 0;
     private int sequence = 0;
     private boolean checkExistingChecksum = false;
@@ -41,7 +41,7 @@ public class CheckSumFilter extends ProxyReceiver {
     private boolean digestCorrect = false;
     private boolean digestFound = false;
     private boolean requireDigest = false;
-    private boolean rootElement = true;
+    private boolean rootElement;
 
     // The code that uses the checksum asks for it after the document element
     // has been processed but before endDocument is called, so we use depth
@@ -137,6 +137,8 @@ public class CheckSumFilter extends ProxyReceiver {
             // A digest is required for version 12.5+
             String version = attributes.getValue("saxonVersion");
             // No sneaky deleting the version to avoid the check. Except SCM files don't have a version...
+            // NOTE: this will also cause very old SEF files (generated prior to 9.8?) to fail, as they don't have
+            // a saxonVersion attribute either. 
             requireDigest = version == null && !scm_schema;
             if (version != null) {
                 String minorVersion = "x"; // cause number format exception

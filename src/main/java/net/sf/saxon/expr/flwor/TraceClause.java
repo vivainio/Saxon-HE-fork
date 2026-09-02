@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.expr.flwor;
 
 import net.sf.saxon.event.Outputter;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.parser.PathMap;
 import net.sf.saxon.expr.parser.RebindingMap;
 import net.sf.saxon.om.NamespaceResolver;
 import net.sf.saxon.trace.ExpressionPresenter;
@@ -93,11 +92,6 @@ public class TraceClause extends Clause {
      */
     @Override
     public void processOperands(OperandProcessor processor) throws XPathException {
-    }
-
-    @Override
-    public void addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        // no action
     }
 
     /**

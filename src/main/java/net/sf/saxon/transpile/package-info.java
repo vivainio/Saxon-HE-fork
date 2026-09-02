@@ -14,4 +14,4 @@
  */
 package net.sf.saxon.transpile;
 
-// Copyright (c) 2025 Saxonica Limited.
+// Copyright (c) 2025-2026 Saxonica Limited.

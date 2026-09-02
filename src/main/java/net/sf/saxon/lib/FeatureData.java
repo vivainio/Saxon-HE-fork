@@ -286,6 +286,8 @@ public class FeatureData {
                 
        featureList.add(new FeatureData("http://saxon.sf.net/feature/saxon-resource-resolver-class", 129, "HE PE EE", String.class, null));     
                 
+       featureList.add(new FeatureData("http://saxon.sf.net/feature/allowImplausibleExpressions", 130, "HE PE EE", Boolean.class, Boolean.FALSE));     
+                
      }
  }    
     

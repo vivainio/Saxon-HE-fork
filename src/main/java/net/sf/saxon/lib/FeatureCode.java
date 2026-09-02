@@ -277,9 +277,11 @@ public abstract class FeatureCode {
     public final static int RESOURCE_RESOLVER = 128;
     /** @see Feature#RESOURCE_RESOLVER_CLASS  */
     public final static int RESOURCE_RESOLVER_CLASS = 129;
+    /** @see Feature#ALLOW_IMPLAUSIBLE_EXPRESSIONS  */
+    public final static int ALLOW_IMPLAUSIBLE_EXPRESSIONS = 130;
 
 
-    public final static int MAX = 129;
+    public final static int MAX = 130;
 
 }
         

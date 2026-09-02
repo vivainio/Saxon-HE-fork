@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -247,8 +247,8 @@ public class ForEachGroup extends Instruction
 
         fixupGroupReferences(this, this, selectedItemType, false);
 
-        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(selectedItemType, false);
-        cit.setContextSettingExpression(getSelectExpression());
+        ContextItemStaticInfo cit = visitor.getConfiguration().makeContextItemStaticInfo(selectedItemType)
+                .withContextSetter(getSelectExpression());
 
         actionOp.typeCheck(visitor, cit);
         keyOp.typeCheck(visitor, cit);
@@ -331,8 +331,8 @@ public class ForEachGroup extends Instruction
     public Expression optimize(ExpressionVisitor visitor, ContextItemStaticInfo contextItemType) throws XPathException {
         selectOp.optimize(visitor, contextItemType);
         ItemType selectedItemType = getSelectExpression().getItemType();
-        ContextItemStaticInfo sit = visitor.getConfiguration().makeContextItemStaticInfo(selectedItemType, false);
-        sit.setContextSettingExpression(getSelectExpression());
+        ContextItemStaticInfo sit = visitor.getConfiguration().makeContextItemStaticInfo(selectedItemType)
+                .withContextSetter(getSelectExpression());
         actionOp.optimize(visitor, sit);
         keyOp.optimize(visitor, sit);
 
@@ -405,6 +405,7 @@ public class ForEachGroup extends Instruction
                 newKeyDef == null ? null : new SortKeyDefinitionList(newKeyDef));
         ExpressionTool.copyLocationInfo(this, feg);
         feg.setComposite(isComposite());
+        feg.setIsInFork(isInFork());
         fixupGroupReferences(feg, feg, getSelectExpression().getItemType(), false);
         return feg;
     }
@@ -434,7 +435,7 @@ public class ForEachGroup extends Instruction
 
     @Override
     public int computeDependencies() {
-        // Some of the dependencies in the "action" part and in the grouping and sort keys aren't relevant,
+        // some of the dependencies in the "action" part and in the grouping and sort keys aren't relevant,
         // because they don't depend on values set outside the for-each-group expression
         int dependencies = 0;
         dependencies |= getSelectExpression().getDependencies();
@@ -511,41 +512,6 @@ public class ForEachGroup extends Instruction
     @Override
     public String getStreamerName() {
         return "ForEachGroup";
-    }
-
-    /**
-     * Add a representation of this expression to a PathMap. The PathMap captures a map of the nodes visited
-     * by an expression in a source tree.
-     * <p>The default implementation of this method assumes that an expression does no navigation other than
-     * the navigation done by evaluating its subexpressions, and that the subexpressions are evaluated in the
-     * same context as the containing expression. The method must be overridden for any expression
-     * where these assumptions do not hold. For example, implementations exist for AxisExpression, ParentExpression,
-     * and RootExpression (because they perform navigation), and for the doc(), document(), and collection()
-     * functions because they create a new navigation root. Implementations also exist for PathExpression and
-     * FilterExpression because they have subexpressions that are evaluated in a different context from the
-     * calling expression.</p>
-     *
-     * @param pathMap        the PathMap to which the expression should be added
-     * @param pathMapNodeSet the set of nodes within the path map
-     * @return the pathMapNode representing the focus established by this expression, in the case where this
-     *         expression is the first operand of a path expression or filter expression. For an expression that does
-     *         navigation, it represents the end of the arc in the path map that describes the navigation route. For other
-     *         expressions, it is the same as the input pathMapNode.
-     */
-
-    @Override
-    public PathMap.PathMapNodeSet addToPathMap(PathMap pathMap, PathMap.PathMapNodeSet pathMapNodeSet) {
-        PathMap.PathMapNodeSet target = getSelectExpression().addToPathMap(pathMap, pathMapNodeSet);
-        if (getCollationNameExpression() != null) {
-            getCollationNameExpression().addToPathMap(pathMap, pathMapNodeSet);
-        }
-        if (getSortKeyDefinitions() != null) {
-            for (SortKeyDefinition skd : getSortKeyDefinitions()) {
-                skd.getSortKey().addToPathMap(pathMap, target);
-                SortExpression.addSortKeyDetailsToPathMap(pathMap, pathMapNodeSet, skd);
-            }
-        }
-        return getActionExpression().addToPathMap(pathMap, target);
     }
 
 

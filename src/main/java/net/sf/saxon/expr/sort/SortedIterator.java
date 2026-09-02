@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -107,7 +107,7 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
 
     /**
      * Determine whether there are more items to come. Note that this operation
-     * is stateless and it is not necessary (or usual) to call it before calling
+     * is stateless, and it is not necessary (or usual) to call it before calling
      * next(). It is used only when there is an explicit need to tell if we
      * are at the last element.
      * <p>This method must not be called unless the method {@link #supportsHasNext()} returns true.</p>
@@ -196,7 +196,7 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
 
     protected void buildArray() throws XPathException {
         int allocated = SequenceTool.supportsGetLength(base) ? SequenceTool.getLength(base) : 100;
-        values = new ObjectToBeSorted[allocated];
+        values = new ItemToBeSorted[allocated];
         count = 0;
 
         // initialise the array with data
@@ -209,7 +209,7 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
                 System.arraycopy(values, 0, nk2, 0, count);
                 values = nk2;
             }
-            ObjectToBeSorted itbs = new ObjectToBeSorted(comparators.length);
+            ItemToBeSorted itbs = new ItemToBeSorted(comparators.length);
             values[count] = itbs;
             itbs.value = item;
             // TODO: delay evaluating the sort keys until we know they are needed. Often the 2nd and subsequent
@@ -233,7 +233,7 @@ public class SortedIterator implements SequenceIterator, LastPositionFinder, Loo
 
     private static class SortComparer implements Comparator<ObjectToBeSorted> {
 
-        private AtomicComparer[] comparators;
+        private final AtomicComparer[] comparators;
 
         public SortComparer(AtomicComparer[] comparators) {
             this.comparators = comparators;

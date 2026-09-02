@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -28,7 +28,6 @@ import net.sf.saxon.type.Affinity;
 import net.sf.saxon.type.AnyItemType;
 import net.sf.saxon.type.ItemType;
 import net.sf.saxon.type.TypeHierarchy;
-import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
 
 import java.util.ArrayList;
@@ -468,11 +467,14 @@ public class GlobalVariable extends Actor
             }
             Supplier<RoleDiagnostic> role = () -> new RoleDiagnostic(
                     RoleDiagnostic.VARIABLE, getVariableQName().getDisplayName(), 0);
-            ContextItemStaticInfo cit = getConfiguration().makeContextItemStaticInfo(AnyItemType.getInstance(), true);
+            ContextItemStaticInfo cit = getConfiguration().makeContextItemStaticInfo(
+                    AnyItemType.INSTANCE, Optionality.OPTIONAL);
             Expression value2 = TypeChecker.strictTypeCheck(
                     value.simplify().typeCheck(visitor, cit),
                     getRequiredType(), role, visitor.getStaticContext());
-            value2 = value2.optimize(visitor, cit);
+            if (visitor.obtainOptimizer().getOptimizerOptions().isSet(OptimizerOptions.MISCELLANEOUS)) {
+                value2 = value2.optimize(visitor, cit);
+            }
             setBody(value2);
             // the value expression may declare local variables
             SlotManager map = getConfiguration().makeSlotManager();
@@ -559,9 +561,9 @@ public class GlobalVariable extends Actor
                     ((GlobalVariable) b).lookForCycles(referees, globalFunctionLibrary);
                 }
             }
-            List<SymbolicName> flist = new ArrayList<>();
+            List<SymbolicName.F> flist = new ArrayList<>();
             ExpressionTool.gatherCalledFunctionNames(select, flist);
-            for (SymbolicName s : flist) {
+            for (SymbolicName.F s : flist) {
                 XQueryFunction f = globalFunctionLibrary.getDeclarationByKey(s);
                 if (!referees.contains(f)) {
                     // recursive function calls are allowed
@@ -592,9 +594,9 @@ public class GlobalVariable extends Actor
                 ((GlobalVariable) b).lookForCycles(referees, globalFunctionLibrary);
             }
         }
-        List<SymbolicName> flist = new ArrayList<>();
+        List<SymbolicName.F> flist = new ArrayList<>();
         ExpressionTool.gatherCalledFunctionNames(body, flist);
-        for (SymbolicName s : flist) {
+        for (SymbolicName.F s : flist) {
             XQueryFunction qf = globalFunctionLibrary.getDeclarationByKey(s);
             if (!referees.contains(qf)) {
                 // recursive function calls are allowed
@@ -812,18 +814,6 @@ public class GlobalVariable extends Actor
             caller = caller.getCaller();
         }
         return (XPathContextMajor) caller;
-    }
-
-    /**
-     * If the variable is bound to an integer, get the minimum and maximum possible values.
-     * Return null if unknown or not applicable
-     *
-     * @return a pair of integers containing the minimum and maximum values for the integer value;
-     *         or null if the value is not an integer or the range is unknown
-     */
-    @Override
-    public IntegerValue[] getIntegerBoundsForVariable() {
-        return getBody()==null ? null : getBody().getIntegerBounds();
     }
 
     /**

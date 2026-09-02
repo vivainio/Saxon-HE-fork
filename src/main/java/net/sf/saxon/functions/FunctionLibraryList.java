@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -9,7 +9,6 @@ package net.sf.saxon.functions;
 
 import net.sf.saxon.expr.Expression;
 import net.sf.saxon.expr.StaticContext;
-import net.sf.saxon.expr.UserFunctionCall;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.Logger;
 import net.sf.saxon.om.FunctionItem;
@@ -19,6 +18,7 @@ import net.sf.saxon.query.XQueryFunction;
 import net.sf.saxon.query.XQueryFunctionBinder;
 import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.type.Schema;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -78,19 +78,19 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
         return null;
     }
 
-
     /**
      * Test whether a function with a given name and arity is available
      * <p>This supports the function-available() function in XSLT.</p>
      *
-     * @param functionName the qualified name of the function being called
+     * @param functionName  the qualified name of the function being called
+     * @param schema
      * @param languageLevel the XPath language level, times 10 (31 = XPath 3.1)
      * @return true if a function of this name and arity is available for calling
      */
     @Override
-    public boolean isAvailable(SymbolicName.F functionName, int languageLevel) {
+    public boolean isAvailable(SymbolicName.F functionName, Schema schema, int languageLevel) {
         for (FunctionLibrary lib : libraryList) {
-            if (lib.isAvailable(functionName, languageLevel)) {
+            if (lib.isAvailable(functionName, schema, languageLevel)) {
                 return true;
             }
         }
@@ -129,7 +129,7 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
             err.info("Looking for function " + functionName.getComponentName().getEQName() + "#" + functionName.getArity());
         }
         for (FunctionLibrary lib : libraryList) {
-            if (debug) {
+            if (debug && !(lib instanceof FunctionLibraryList)) {
                 err.info("Trying " + lib.getClass().getName());
             }
             Expression func = lib.bind(functionName, staticArgs, keywords, env, reasons);
@@ -160,30 +160,6 @@ public class FunctionLibraryList implements FunctionLibrary, XQueryFunctionBinde
             }
         }
         return null;
-    }
-
-    /**
-     * Bind a function call using this function library, in the situation where
-     * it was not possible to bind it earlier, typically because it was encountered as a forwards
-     * reference.
-     *
-     * @param call     The unbound function call, which will include a non-null <code>UnboundFunctionCallDetails</code>
-     * @param reasons a list which can be populated with messages indicating why binding failed
-     * @return true if the function call is now bound; false if it remains unbound.
-     */
-
-
-    @Override
-    public boolean bindUnboundFunctionCall(UserFunctionCall call, List<String> reasons) {
-        for (FunctionLibrary lib : libraryList) {
-            if (lib instanceof XQueryFunctionBinder) {
-                boolean found = ((XQueryFunctionBinder) lib).bindUnboundFunctionCall(call, reasons);
-                if (found) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     /**

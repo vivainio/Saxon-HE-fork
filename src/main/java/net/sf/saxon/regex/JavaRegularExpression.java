@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -14,7 +14,7 @@ import net.sf.saxon.str.StringView;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AtomicIterator;
-import net.sf.saxon.tree.iter.EmptyIterator;
+import net.sf.saxon.tree.iter.EmptyAtomicIterator;
 
 import java.util.function.BiFunction;
 import java.util.regex.Matcher;
@@ -155,7 +155,7 @@ public class JavaRegularExpression implements RegularExpression {
     @Override
     public AtomicIterator tokenize(UnicodeString input) {
         if (input.isEmpty()) {
-            return EmptyIterator.ofAtomic();
+            return EmptyAtomicIterator.INSTANCE;
         }
         return new JTokenIterator(input.toString(), pattern);
     }

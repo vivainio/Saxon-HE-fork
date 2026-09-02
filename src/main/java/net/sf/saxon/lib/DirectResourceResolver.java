@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -66,15 +66,12 @@ public class DirectResourceResolver implements ResourceResolver {
             // This path is used by the unparsed-text resolver when no encoding is supplied;
             // it returns (where possible) a TypedStreamSource containing the binary input
             // stream, together with the content type from the HTTP headers.
-            final String uri;
             try {
-                if (request.baseUri == null) {
-                    uri = request.uri;
-                } else {
-                    uri = new URI(request.baseUri).resolve(request.uri).toString();
+                return ResourceLoader.typedStreamSource(config, request.uri);
+            } catch (IOException e) {
+                if (e.getMessage().contains(request.uri)) {
+                    throw new XPathException("Cannot read binary resource ", e);
                 }
-                return ResourceLoader.typedStreamSource(config, uri);
-            } catch (IOException | URISyntaxException e) {
                 throw new XPathException("Cannot read " + request.uri, e);
             }
         }

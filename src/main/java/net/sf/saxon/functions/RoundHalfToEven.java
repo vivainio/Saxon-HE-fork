@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -41,13 +41,14 @@ public final class RoundHalfToEven extends SystemFunction {
      * @param context   the dynamic evaluation context
      * @param arguments the values of the arguments, supplied as Sequences
      * @return the result of the evaluation, in the form of a Sequence
-     * @throws net.sf.saxon.trans.XPathException if a dynamic error occurs during the evaluation of the expression
+     * @throws net.sf.saxon.trans.XPathException
+     *          if a dynamic error occurs during the evaluation of the expression
      */
     @Override
     public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
         NumericValue val0 = (NumericValue) arguments[0].head();
         if (val0 == null) {
-            return EmptySequence.getInstance();
+            return EmptySequence.INSTANCE;
         }
 
         int scale = 0;
@@ -97,13 +98,13 @@ public final class RoundHalfToEven extends SystemFunction {
                 } else {
                     return context -> ((NumericValue) arg0eval.eval(context)).round(0, Round.RoundingRule.HALF_TO_EVEN);
                 }
-            } else if (fnc.getArg(1) instanceof Literal && ((Literal) fnc.getArg(1)).getGroundedValue() instanceof NumericValue) {
+            } else if (fnc.getArg(1) instanceof Literal && ((Literal)fnc.getArg(1)).getGroundedValue() instanceof NumericValue) {
                 final NumericValue scaleVal = (NumericValue) ((Literal) fnc.getArg(1)).getGroundedValue();
                 if (scaleVal.compareTo(Integer.MAX_VALUE) > 0) {
                     return arg0eval;
                 } else {
                     try {
-                        int scale = scaleVal.compareTo(Integer.MIN_VALUE) < 0 ? Integer.MIN_VALUE : (int) scaleVal.longValue();
+                        int scale = scaleVal.compareTo(Integer.MIN_VALUE) < 0 ? Integer.MIN_VALUE: (int) scaleVal.longValue();
                         return context -> {
                             NumericValue result = (NumericValue) arg0eval.eval(context);
                             if (result == null) {

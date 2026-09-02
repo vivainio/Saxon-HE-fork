@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -46,7 +46,7 @@ public class PackageVersionRanges {
                 low = PackageVersion.ZERO;
                 String end = s.substring(3);
                 if (end.endsWith(".*")) {
-                    high = new PackageVersion(end.substring(0, end.length()-2));
+                    high = new PackageVersion(end.substring(0, end.length() - 2));
                     prefix = true;
                 } else {
                     high = new PackageVersion(end);
@@ -124,8 +124,9 @@ public class PackageVersionRanges {
 
     /**
      * Test whether a given package version lies within any of the ranges described in this PackageVersionRanges
+     *
      * @param version The version to be checked
-     * @return  true if the version is contained in any of the ranges, false otherwise
+     * @return true if the version is contained in any of the ranges, false otherwise
      */
     public boolean contains(PackageVersion version) {
         for (PackageVersionRange r : ranges) {
@@ -145,7 +146,7 @@ public class PackageVersionRanges {
             for (PackageVersionRange r : ranges) {
                 buffer.append(r.toString()).append(",");
             }
-            buffer.setLength(buffer.length()-1);
+            buffer.setLength(buffer.length() - 1);
             return buffer.toString();
         }
     }

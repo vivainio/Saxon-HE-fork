@@ -4,7 +4,7 @@ Saxon-HE (Home Edition) is an open-source XSLT 3.0, XQuery 3.1, and XPath 3.1 pr
 
 ## Disclaimer
 
-This is an unofficial community fork. There is no promise of compatibility, usability, or maintenance, and it is not affiliated with or endorsed by Saxonica. The repository is based on a snapshot of Saxon-HE 12.9 and may or may not have a life of its own.
+This is an unofficial community fork. There is no promise of compatibility, usability, or maintenance, and it is not affiliated with or endorsed by Saxonica. The repository is based on a snapshot of Saxon-HE 13.0 and may or may not have a life of its own. A snapshot based on Saxon-HE 12.9 remains available on the [`saxon-12`](https://github.com/vivainio/Saxon-HE-fork/tree/saxon-12) branch.
 
 Saxon-HE is released under the [Mozilla Public License 2.0](LICENSE), which permits this kind of redistribution and modification.
 
@@ -42,10 +42,10 @@ Pre-built JARs are available from [GitHub Releases](https://github.com/vivainio/
 ### Versioning
 
 This fork uses the format `X.Y.Z` where:
-- `X.Y` matches the upstream Saxon-HE version (e.g., `12.9`)
+- `X.Y` matches the upstream Saxon-HE version (e.g., `13.0`)
 - `Z` is the fork release number (e.g., `1`, `2`, `3`)
 
-For example, `12.9.1` is the first release of this fork based on Saxon-HE 12.9.
+For example, `13.0.1` is the first release of this fork based on Saxon-HE 13.0.
 
 ## License
 
@@ -54,5 +54,5 @@ Saxon-HE is released under the [Mozilla Public License 2.0](LICENSE).
 ## Documentation
 
 - [Fork enhancements](ENHANCEMENTS.md) — features added on top of upstream Saxon-HE
-- [Saxonica Documentation](https://www.saxonica.com/documentation12/documentation.xml)
+- [Saxonica Documentation](https://www.saxonica.com/documentation13/documentation.xml)
 - [Official Saxon-HE Repository](https://github.com/Saxonica/Saxon-HE)

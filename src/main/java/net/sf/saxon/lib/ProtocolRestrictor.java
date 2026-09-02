@@ -69,6 +69,11 @@ public class ProtocolRestrictor {
         }
     }
 
+    /**
+     * Test whether a particular URI is permitted by this protocol restrictor
+     * @param uri the candidate URI
+     * @return true if access to this URI is permitted
+     */
     public boolean test(URI uri) {
         return predicate.test(uri);
     }
@@ -76,6 +81,7 @@ public class ProtocolRestrictor {
     public String toString() {
         return originalRule;
     }
+
 
     public ResourceResolver asResourceResolver(ResourceResolver existing) {
         return new RestrictedResourceResolver(this, existing);
@@ -101,14 +107,6 @@ public class ProtocolRestrictor {
             this.nextResolver = rr;
         }
 
-        // Pass the allowed protocols through to the underlying resolver.
-        public void setAllowedProtocols(String protocols) {
-            if (nextResolver instanceof CatalogResourceResolver) {
-                CatalogResourceResolver catres = (CatalogResourceResolver) nextResolver;
-                catres.setAllowedProtocols(protocols);
-            }
-        }
-
         @Override
         public Source resolve(ResourceRequest request) throws XPathException {
             if (protocolRestrictor.test(URI.create(request.uri))) {
@@ -118,6 +116,7 @@ public class ProtocolRestrictor {
             }
         }
     }
+
 
 
 

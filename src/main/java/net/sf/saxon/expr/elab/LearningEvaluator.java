@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2023 Saxonica Limited
+// Copyright (c) 2023-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -8,6 +8,7 @@
 package net.sf.saxon.expr.elab;
 
 import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.Literal;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.trans.XPathException;
@@ -26,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class LearningEvaluator implements SequenceEvaluator {
 
-    private final static int EVAL_LIMIT = 20;
+    private final static int EVAL_LIMIT = 10;
     private final static int LEARNING_LIMIT = 40;
 
     private final Expression expression;
@@ -37,6 +38,7 @@ public class LearningEvaluator implements SequenceEvaluator {
 
     /**
      * Construct a <code>LearningEvaluator</code>
+     *
      * @param expr the expression to be evaluated
      * @param lazy a SequenceEvaluator that evaluates the expression. Although this
      *             is generally obtained by calling <code>getElaborator().lazily()</code>,
@@ -45,14 +47,17 @@ public class LearningEvaluator implements SequenceEvaluator {
      *             themselves eagerly all the time.
      */
     public LearningEvaluator(Expression expr, SequenceEvaluator lazy) {
-//        monitoring = expr.toShortString().contains("$return-val");
-//        if (monitoring) {
-//            System.err.println("New learning evaluator for " + expr.toShortString());
-//        }
         this.expression = expr;
         this.evaluator = lazy;
         this.completed = new AtomicInteger(0);
         this.count = new AtomicInteger(0);
+    }
+
+    public static SequenceEvaluator makeLearningEvaluator(Expression expr, SequenceEvaluator lazy) {
+        if (expr instanceof Literal) {
+            return lazy;
+        }
+        return new LearningEvaluator(expr, lazy);
     }
 
     /**
@@ -70,7 +75,7 @@ public class LearningEvaluator implements SequenceEvaluator {
         } else {
             Sequence result = evaluator.evaluate(context);
             if (result instanceof Closure) {
-                ((Closure)result).setLearningEvaluator(this, numberStarted);
+                ((Closure) result).setLearningEvaluator(this, numberStarted);
             }
             return result;
         }
@@ -78,6 +83,7 @@ public class LearningEvaluator implements SequenceEvaluator {
 
     /**
      * Callback method called when a lazily-evaluated expression has been read to completion
+     *
      * @param serialNumber identifies the evaluation
      */
 

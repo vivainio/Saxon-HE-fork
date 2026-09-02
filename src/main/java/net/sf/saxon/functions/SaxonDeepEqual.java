@@ -1,14 +1,21 @@
+// //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2026 Saxonica Limited
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// This Source Code Form is “Incompatible With Secondary Licenses”, as defined by the Mozilla Public License, v. 2.0.
+// //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 package net.sf.saxon.functions;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.expr.XPathContext;
-import net.sf.saxon.expr.sort.AtomicComparer;
+import net.sf.saxon.expr.sort.AtomicMatcher;
 import net.sf.saxon.expr.sort.GenericAtomicComparer;
 import net.sf.saxon.lib.ErrorReporter;
 import net.sf.saxon.lib.Logger;
 import net.sf.saxon.lib.StringCollator;
 import net.sf.saxon.om.*;
-import net.sf.saxon.pattern.SameNameTest;
+import net.sf.saxon.pattern.nodetest.AnyGNode;
 import net.sf.saxon.query.QueryResult;
 import net.sf.saxon.str.StringTool;
 import net.sf.saxon.str.UnicodeBuilder;
@@ -17,7 +24,6 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.trans.XmlProcessingIncident;
 import net.sf.saxon.transpile.CSharp;
 import net.sf.saxon.tree.iter.AtomicIterator;
-import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.iter.ListIterator;
 import net.sf.saxon.tree.tiny.WhitespaceTextImpl;
 import net.sf.saxon.tree.util.Navigator;
@@ -26,6 +32,7 @@ import net.sf.saxon.type.ComplexType;
 import net.sf.saxon.type.ComplexVariety;
 import net.sf.saxon.type.SchemaType;
 import net.sf.saxon.type.Type;
+import net.sf.saxon.type.gnode.NamedXNodeType;
 import net.sf.saxon.value.*;
 
 import javax.xml.transform.OutputKeys;
@@ -117,11 +124,11 @@ public class SaxonDeepEqual extends SystemFunction {
     public static final int COMPARE_ID_FLAGS = 1 << 9;
 
     /**
-     * Flag indicating that the variety of the node type is to be ignored (for example, a mixed content
+     * Flag indicating that the variety of the type of a node is to be ignored (for example, a mixed content
      * node can compare equal to an element-only content node
      */
-    public static final int EXCLUDE_VARIETY = 1 << 10;
 
+    public static final int EXCLUDE_VARIETY = 1 << 10;
 
 
     /**
@@ -158,7 +165,7 @@ public class SaxonDeepEqual extends SystemFunction {
         if (collator == null) {
             throw new XPathException("Unknown collation " + collation, "FOCH0002");
         }
-        GenericAtomicComparer comparer = new GenericAtomicComparer(collator, context);
+        AtomicMatcher comparer = GenericAtomicComparer.getTransitiveAtomicMatcher(collator, context.getImplicitTimezone());
         int flag = 0;
         if (flags.contains("N")) {
             flag |= INCLUDE_NAMESPACES;
@@ -213,7 +220,7 @@ public class SaxonDeepEqual extends SystemFunction {
      */
 
     public static boolean deepEqual(SequenceIterator op1, SequenceIterator op2,
-                                    AtomicComparer comparer, XPathContext context, int flags)
+                                    AtomicMatcher comparer, XPathContext context, int flags)
             throws XPathException {
         boolean result = true;
         String reason = null;
@@ -275,7 +282,7 @@ public class SaxonDeepEqual extends SystemFunction {
 
                 if (item1 instanceof NodeInfo) {
                     if (item2 instanceof NodeInfo) {
-                        String message = deepEquals((NodeInfo) item1, (NodeInfo) item2, comparer, context, flags);
+                        String message = deepEqualNodes((NodeInfo) item1, (NodeInfo) item2, comparer, context, flags);
                         if (message != null) {
                             result = false;
                             reason = "nodes at position " + pos1 + " differ: " + message;
@@ -296,7 +303,7 @@ public class SaxonDeepEqual extends SystemFunction {
                         AtomicValue av2 = (AtomicValue) item2;
                         if (av1.isNaN() && av2.isNaN()) {
                             // treat as equal, no action
-                        } else if (!comparer.comparesEqual(av1, av2)) {
+                        } else if (!comparer.equal(av1, av2)) {
                             result = false;
                             reason = "atomic values at position " + pos1 + " differ";
                             break;
@@ -325,13 +332,52 @@ public class SaxonDeepEqual extends SystemFunction {
         return result;
     }
 
+    /**
+     * Determine whether two items are deep-equal, with default options
+     *
+     * @param item1    the first item
+     * @param item2    the second item
+     * @param comparer the comparer to be used for comparing atomic values
+     * @param context  the XPathContext item
+     * @return true if the items are deep-equal
+     * @throws XPathException if either sequence contains a function item
+     */
+
+    public static boolean deepEqual(Item item1, Item item2,
+                                    AtomicMatcher comparer, XPathContext context)
+            throws XPathException {
+
+        if (item1.getGenre() != item2.getGenre()) {
+            return false;
+        }
+        if (item1 instanceof FunctionItem) {
+            return ((FunctionItem) item1).deepEquals((FunctionItem) item2, context, comparer, 0);
+        }
+
+        if (item1 instanceof ObjectValue<?>) {
+            return item1.equals(item2);
+        }
+
+        if (item1 instanceof NodeInfo) {
+            String message = deepEqualNodes((NodeInfo) item1, (NodeInfo) item2, comparer, context, 0);
+            return message == null;
+
+        } else {
+            AtomicValue av1 = (AtomicValue) item1;
+            AtomicValue av2 = (AtomicValue) item2;
+            return (av1.isNaN() && av2.isNaN()) || comparer.equal(av1, av2);
+
+        }
+    }
+
+
     /*
      * Determine whether two nodes are deep-equal
      * @return null if they are deep equal, or an explanation of the reason if not
      */
 
-    public static String deepEquals(NodeInfo n1, NodeInfo n2,
-                                    AtomicComparer comparer, XPathContext context, int flags)
+    public static String deepEqualNodes(NodeInfo n1, NodeInfo n2,
+                                        AtomicMatcher comparer, XPathContext context, int flags)
             throws XPathException {
         // shortcut: a node is always deep-equal to itself
         if (n1.equals(n2)) {
@@ -360,19 +406,19 @@ public class SaxonDeepEqual extends SystemFunction {
                     explain(reporter, reason, flags, n1, n2);
                     return reason;
                 }
-                AxisIterator a1 = n1.iterateAxis(AxisInfo.ATTRIBUTE);
-                AxisIterator a2 = n2.iterateAxis(AxisInfo.ATTRIBUTE);
+                SequenceIterator a1 = n1.iterateAttributeAxis(AnyGNode.TEST);
+                SequenceIterator a2 = n2.iterateAttributeAxis(AnyGNode.TEST);
                 if (!SequenceTool.sameLength(a1, a2)) {
                     final String reason = "elements have different number of attributes";
                     explain(reporter, reason, flags, n1, n2);
                     return reason;
                 }
                 NodeInfo att1;
-                a1 = n1.iterateAxis(AxisInfo.ATTRIBUTE);
-                while ((att1 = a1.next()) != null) {
-                    AxisIterator a2iter = n2.iterateAxis(AxisInfo.ATTRIBUTE,
-                                                         new SameNameTest(att1));
-                    NodeInfo att2 = a2iter.next();
+                a1 = n1.iterateAttributeAxis(AnyGNode.TEST);
+                while ((att1 = (NodeInfo)a1.next()) != null) {
+                    StructuredQName required = att1.getQName();
+                    SequenceIterator a2iter = n2.iterateAttributeAxis(new NamedXNodeType(Type.ATTRIBUTE, required, context.getConfiguration()));
+                    NodeInfo att2 = (NodeInfo)a2iter.next();
 
                     if (att2 == null) {
                         final String reason = "one element has an attribute " +
@@ -381,7 +427,7 @@ public class SaxonDeepEqual extends SystemFunction {
                         explain(reporter, reason, flags, n1, n2);
                         return reason;
                     }
-                    String attReason = deepEquals(att1, att2, comparer, context, flags);
+                    String attReason = deepEqualNodes(att1, att2, comparer, context, flags);
                     if (attReason != null) {
                         final String reason = "elements have different values for the attribute " +
                                 NameOfNode.makeName(att1).getStructuredQName().getEQName() + " - " + attReason;
@@ -460,16 +506,16 @@ public class SaxonDeepEqual extends SystemFunction {
                 CSharp.emitCode("goto case Saxon.Hej.type.Type.DOCUMENT;");
                 // fall through
             case Type.DOCUMENT:
-                AxisIterator c1 = n1.iterateAxis(AxisInfo.CHILD);
-                AxisIterator c2 = n2.iterateAxis(AxisInfo.CHILD);
+                SequenceIterator c1 = n1.iterateChildAxis(AnyGNode.TEST);
+                SequenceIterator c2 = n2.iterateChildAxis(AnyGNode.TEST);
                 while (true) {
-                    NodeInfo d1 = c1.next();
+                    NodeInfo d1 = (NodeInfo)c1.next();
                     while (d1 != null && isIgnorable(d1, flags)) {
-                        d1 = c1.next();
+                        d1 = (NodeInfo)c1.next();
                     }
-                    NodeInfo d2 = c2.next();
+                    NodeInfo d2 = (NodeInfo)c2.next();
                     while (d2 != null && isIgnorable(d2, flags)) {
-                        d2 = c2.next();
+                        d2 = (NodeInfo)c2.next();
                     }
                     if (d1 == null || d2 == null) {
                         boolean r = d1 == d2;
@@ -485,7 +531,7 @@ public class SaxonDeepEqual extends SystemFunction {
                         }
                         return null;
                     }
-                    String recursiveResult = deepEquals(d1, d2, comparer, context, flags);
+                    String recursiveResult = deepEqualNodes(d1, d2, comparer, context, flags);
                     if (recursiveResult != null) {
                         return recursiveResult;
                     }
@@ -516,7 +562,7 @@ public class SaxonDeepEqual extends SystemFunction {
                 if ((flags & COMPARE_STRING_VALUES) == 0) {
                     ar = deepEqual(n1.atomize().iterate(), n2.atomize().iterate(), comparer, context, 0);
                 } else {
-                    ar = comparer.comparesEqual(new StringValue(n1.getUnicodeStringValue()), new StringValue(n2.getUnicodeStringValue()));
+                    ar = comparer.equal(new StringValue(n1.getUnicodeStringValue()), new StringValue(n2.getUnicodeStringValue()));
                 }
                 if (!ar) {
                     final String reason = "attribute values differ";
@@ -549,7 +595,7 @@ public class SaxonDeepEqual extends SystemFunction {
                 // drop through
             case Type.TEXT:
             case Type.COMMENT:
-                boolean vr = comparer.comparesEqual((AtomicValue) n1.atomize(), (AtomicValue) n2.atomize());
+                boolean vr = comparer.equal((AtomicValue) n1.atomize(), (AtomicValue) n2.atomize());
                 if (!vr) {
                     if ((flags & WARNING_IF_FALSE) != 0) {
                         String v1 = n1.getStringValue();
@@ -673,30 +719,13 @@ public class SaxonDeepEqual extends SystemFunction {
         return new ListIterator.Of<>(items);
     }
 
-//    /**
-//     * Execute a dynamic call to the function
-//     *
-//     * @param context   the dynamic evaluation context
-//     * @param arguments the values of the arguments, supplied as Sequences.
-//     * @return the result of the evaluation, in the form of a Sequence. It is the responsibility
-//     * of the callee to ensure that the type of result conforms to the expected result type.
-//     * @throws XPathException (should not happen)
-//     */
-//
-//    @Override
-//    public BooleanValue call(XPathContext context, Sequence[] arguments) throws XPathException {
-//        GenericAtomicComparer comparer = new GenericAtomicComparer(getStringCollator(), context);
-//        boolean b = deepEqual(arguments[0].iterate(), arguments[1].iterate(), comparer, context, 0);
-//        return BooleanValue.get(b);
-//    }
-
     @Override
     public String getStreamerName() {
-        return "DeepEqual";
+        return "SaxonDeepEqual";
     }
 
 
 }
 
-// Copyright (c) 2009-2023 Saxonica Limited
+// Copyright (c) 2009-2026 Saxonica Limited
 

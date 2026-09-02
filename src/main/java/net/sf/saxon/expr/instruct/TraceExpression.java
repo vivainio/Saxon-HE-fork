@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -223,9 +223,10 @@ public class TraceExpression extends Instruction {
         return !getChild().hasSpecialProperty(StaticProperty.NO_NODES_NEWLY_CREATED);
     }
 
+
     public boolean equals(Object other) {
         return other instanceof TraceExpression &&
-                getChild().equals(((TraceExpression)other).getChild());
+                getChild().equals(((TraceExpression) other).getChild());
     }
 
     /**
@@ -237,6 +238,7 @@ public class TraceExpression extends Instruction {
     protected int computeHashCode() {
         return 0x64646464 ^ getChild().hashCode();
     }
+
 
     /**
      * Return the estimated cost of evaluating an expression. For a TraceExpression we return zero,

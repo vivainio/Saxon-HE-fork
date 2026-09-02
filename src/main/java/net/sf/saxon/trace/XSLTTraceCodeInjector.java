@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -67,12 +67,11 @@ public class XSLTTraceCodeInjector extends TraceCodeInjector {
         }
         if (loc instanceof AttributeLocation) {
             StructuredQName elementName = ((AttributeLocation) loc).getElementName();
-            return elementName.hasURI(NamespaceUri.XSLT) && (
-                    elementName.getLocalPart().equals("sequence"));
+            return elementName.hasURI(NamespaceUri.XSLT) && elementName.getLocalPart().equals("sequence");
         }
         // Otherwise trace the expression if it has a known location which differs from the parent expression
         // except in the case where the parent expression is a sequence constructor (`Block`)
-        // or a type-checking instruction
+        // or where it is a type-checking instruction
         return loc != null
                 && loc.getLineNumber() != -1
                 && !(parent != null && loc == parent.getLocation()

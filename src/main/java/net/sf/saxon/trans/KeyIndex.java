@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013-2023 Saxonica Limited
+// Copyright (c) 2013-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -21,6 +21,7 @@ import net.sf.saxon.om.*;
 import net.sf.saxon.pattern.Pattern;
 import net.sf.saxon.str.UnicodeString;
 import net.sf.saxon.transpile.CSharpSimpleEnum;
+import net.sf.saxon.transpile.CSharpUsing;
 import net.sf.saxon.tree.iter.ListIterator;
 import net.sf.saxon.tree.iter.*;
 import net.sf.saxon.type.*;
@@ -46,6 +47,7 @@ import java.util.*;
  * can happen for an arbitrary number of data types, though it is unlikely in practice because not many
  * types have overlapping lexical spaces.</p>
  */
+@CSharpUsing(code="Saxon.Hej.type")
 public class KeyIndex {
 
     @CSharpSimpleEnum
@@ -272,7 +274,7 @@ public class KeyIndex {
                             // node already in list; do nothing
                         } else {
                             // add the node at this position
-                            nodes.add(i + 1, curr);
+                            nodes.add(i+1, curr);
                         }
                         found = true;
                         break;
@@ -350,7 +352,7 @@ public class KeyIndex {
             List<NodeInfo> resultNodes = new ArrayList<>();
             int counter = 0;
             for (PrimitiveUType type : keyTypesPresent.decompose()) {
-                AtomicType targetType = (AtomicType) type.toItemType();
+                AtomicType targetType = (AtomicType) UType.toItemType(type);
                 AtomicValue converted = Converter.convert(soughtValue, targetType, rules);
                 Object value = index.get(getCollationKey(converted, collation, implicitTimezone));
                 if (value != null) {
@@ -375,12 +377,12 @@ public class KeyIndex {
 
     private SequenceIterator entryIterator(Object value) {
         if (value == null) {
-            return EmptyIterator.ofNodes();
+            return EmptyIterator.INSTANCE;
         } else if (value instanceof NodeInfo) {
-            return SingleNodeIterator.makeIterator((NodeInfo) value);
+            return SingletonIterator.makeIterator((NodeInfo) value);
         } else {
             List<NodeInfo> nodes = (List<NodeInfo>) value;
-            return new NodeListIterator(nodes);
+            return new ListIterator.Of<>(nodes);
         }
     }
 
@@ -409,7 +411,7 @@ public class KeyIndex {
                 return collation.getCollationKey(value.getUnicodeStringValue());
             }
         } else {
-            return value.getXPathMatchKey(collation, implicitTimezone);
+            return value.getXPathMatchKey(collation, implicitTimezone, 31);
         }
     }
 

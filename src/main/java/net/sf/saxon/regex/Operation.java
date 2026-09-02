@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -64,7 +64,7 @@ public abstract class Operation {
      * if the expression is statically known to match a zero-length string at the
      * start of the supplied input;</li>
      * <li>returns
-     * {@link #MATCHES_ZLS_AT_END} if it is statically known to return a zero-length
+     * {@link #MATCHES_ZLS_AT_END} if it is statically known to match a zero-length
      * string at the end of the supplied input;</li>
      * <li>returns {@link #MATCHES_ZLS_ANYWHERE}
      * if it is statically known to match a zero-length string anywhere in the input.
@@ -87,6 +87,22 @@ public abstract class Operation {
      */
 
     public boolean containsCapturingExpressions() {
+        return false;
+    }
+
+    /**
+     * Ask whether the expression is a zero-width assertion
+     */
+
+    public boolean isAssertion() {
+        return false;
+    }
+
+    /**
+     * Ask whether the expression is allowed within a lookbehind
+     */
+
+    public boolean isAllowedWithinLookbehind() {
         return false;
     }
 

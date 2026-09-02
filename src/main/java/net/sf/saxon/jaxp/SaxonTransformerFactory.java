@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2018-2023 Saxonica Limited
+// Copyright (c) 2018-2026 Saxonica Limited
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // This Source Code Form is "Incompatible With Secondary Licenses", as defined by the Mozilla Public License, v. 2.0.
@@ -326,26 +326,19 @@ public class SaxonTransformerFactory extends SAXTransformerFactory implements Co
                 break;
             case XMLConstants.ACCESS_EXTERNAL_DTD:
                 getConfiguration().setConfigurationProperty(FeatureKeys.XML_PARSER_PROPERTY + XMLConstants.ACCESS_EXTERNAL_DTD, value);
+                ResourceResolver dtdResolver = getConfiguration().getResourceResolver();
+                if (dtdResolver instanceof CatalogResourceResolver) {
+                    CatalogResourceResolver catres = (CatalogResourceResolver) dtdResolver;
+                    catres.setFeature(ResolverFeature.ACCESS_EXTERNAL_ENTITY, value.toString());
+                }
                 break;
             case XMLConstants.ACCESS_EXTERNAL_STYLESHEET:
                 getConfiguration().setConfigurationProperty(Feature.ALLOWED_PROTOCOLS, value.toString());
                 ResourceResolver resolver = getConfiguration().getResourceResolver();
-
-                // This is a bit of a hack. If the next resolver is a protocol resolver, we forward
-                // the access protocols to it. It will, in turn, pass them on to the underlying catalog
-                // resolver if that's what it's forwarding to.
-                if (resolver instanceof ProtocolRestrictor.RestrictedResourceResolver) {
-                    ProtocolRestrictor.RestrictedResourceResolver pres = (ProtocolRestrictor.RestrictedResourceResolver) resolver;
-                    pres.setAllowedProtocols(value.toString());
-                }
-
-                // But if our resolver is already a CatalogResourceResolver, pass the configuration
-                // directly on to it as well.
                 if (resolver instanceof CatalogResourceResolver) {
                     CatalogResourceResolver catres = (CatalogResourceResolver) resolver;
-                    catres.setAllowedProtocols(value.toString());
+                    catres.setFeature(ResolverFeature.ACCESS_EXTERNAL_DOCUMENT, value.toString());
                 }
-
                 break;
             default:
                 getConfiguration().setConfigurationProperty(name, value);
@@ -379,10 +372,13 @@ public class SaxonTransformerFactory extends SAXTransformerFactory implements Co
      * Set the error event listener for the TransformerFactory, which
      * is used for the processing of transformation instructions,
      * and not for the transformation itself.
-     * <p>This method is defined in JAXP but its use with Saxon is deprecated,
-     * because the errorListener will be shared by all stylesheet compilations
+     * <p>This method is defined in JAXP but its use is troublesome,
+     * because the {@code ErrorListener} will be shared by all stylesheet compilations
      * running under this factory, which may be operating concurrently
-     * in different threads.</p>
+     * in different threads, and there is no easy way to separate error messages
+     * relating to different compilations. In this scenario it is better to
+     * use the Saxon s9api methods, which allow different error handlers to
+     * be associated with different stylesheet and query compilations.</p>
      *
      * @param listener The new error listener.
      * @throws IllegalArgumentException if listener is null.
@@ -400,6 +396,10 @@ public class SaxonTransformerFactory extends SAXTransformerFactory implements Co
      * Get the error event handler for the TransformerFactory.
      *
      * @return The current error listener, which should never be null.
+     * If no error listener has been explicitly set, then as mandated
+     * by JAXP a non-null instance is returned, but it is not especially
+     * useful because the specification places no constraints on its
+     * behavior if called.
      */
     @Override
     public ErrorListener getErrorListener() {
