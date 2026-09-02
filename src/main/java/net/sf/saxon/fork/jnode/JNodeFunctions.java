@@ -11,6 +11,7 @@ import net.sf.saxon.ma.jnode.RootJNode;
 import net.sf.saxon.om.Item;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
+import net.sf.saxon.om.SequenceIterator;
 import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.om.ZeroOrMore;
@@ -57,11 +58,27 @@ import java.util.List;
  * class is an independent, function-call-based navigation surface built on
  * top of that object model, in place of the native {@code /} syntax.</p>
  *
+ * <p>Every function below that takes a {@code $node} argument accepts
+ * either an existing JNode <em>or</em> a raw map/array, auto-wrapping the
+ * latter via {@link RootJNode#obtainRootJNode} — so
+ * {@code jn:children(parse-json($text))} works directly, with no
+ * {@code jn:node(...)} call needed. {@code jn:node()} itself is still
+ * there as an explicit, strict entry point (it errors on non-map/array
+ * input; the others don't need to, since anything that isn't a JNode or a
+ * map/array simply fails downstream in an obvious way).</p>
+ *
  * <p>Functions (all in namespace {@link #JN_NS}, conventional prefix
  * {@code jn}):</p>
  * <ul>
  *   <li>{@code jn:node($value as item()) as item()} — wrap a map or array
- *       as a root JNode.</li>
+ *       as a root JNode. Raises {@code jn:not-a-map-or-array} otherwise.</li>
+ *   <li>{@code jn:get($node as item(), $selectors as xs:anyAtomicType*) as
+ *       item()?} — direct lookup: {@code jn:get($n, 'a')} for one step,
+ *       {@code jn:get($n, ('a', 'b', 2))} for a whole path in one call.
+ *       Empty sequence (not an error) as soon as a step doesn't match.</li>
+ *   <li>{@code jn:find($node as item(), $key as xs:string) as item()*} —
+ *       every node at any depth (self included) with map key
+ *       {@code $key}; the direct equivalent of XPath's {@code //key}.</li>
  *   <li>{@code jn:children($node as item()) as item()*} — child JNodes
  *       (map entries or array members).</li>
  *   <li>{@code jn:parent($node as item()) as item()?} — parent JNode, or
@@ -93,8 +110,7 @@ import java.util.List;
  * </ul>
  *
  * <p>Not implemented (out of scope for this fork's "pragmatic subset"
- * tier): sibling axes, a path-string convenience (e.g. {@code jn:get($n,
- * 'a/b/2')}), and node identity/equality helpers beyond what
+ * tier): sibling axes, and node identity/equality helpers beyond what
  * {@code jn:is-node} gives you. Add another nested class and register it
  * in {@link #register(Configuration)} to extend.</p>
  */
@@ -124,6 +140,8 @@ public final class JNodeFunctions {
         config.registerExtensionFunction(new KeyIs());
         config.registerExtensionFunction(new IndexIs());
         config.registerExtensionFunction(new DescendantOrSelf());
+        config.registerExtensionFunction(new Get());
+        config.registerExtensionFunction(new Find());
     }
 
     /**
@@ -141,13 +159,53 @@ public final class JNodeFunctions {
 
     // -- helpers ------------------------------------------------------
 
+    /**
+     * Resolve an argument to a JNode: pass through an existing JNode as-is,
+     * or auto-wrap a raw map/array via {@link RootJNode#obtainRootJNode}.
+     * This is what lets every function below skip an explicit
+     * {@code jn:node(...)} call — {@code jn:children(parse-json($text))}
+     * works directly. Only {@code jn:node()} itself keeps the strict
+     * map/array-only check, for callers who want that error deliberately.
+     */
     private static JNode asJNode(Sequence s) throws XPathException {
         Item item = s.head();
-        if (!(item instanceof JNode)) {
-            throw err("not-a-jnode", "Expected a jn:node() result, got: " +
-                    (item == null ? "()" : item.getClass().getSimpleName()));
+        if (item instanceof JNode) {
+            return (JNode) item;
         }
-        return (JNode) item;
+        if (item instanceof MapOrArray) {
+            return RootJNode.obtainRootJNode((MapOrArray) item);
+        }
+        throw err("not-a-jnode", "Expected a JNode, map, or array, got: " +
+                (item == null ? "()" : item.getClass().getSimpleName()));
+    }
+
+    private static List<Item> descendantOrSelfList(JNode node) throws XPathException {
+        List<Item> nodes = new ArrayList<>();
+        collectDescendantOrSelf(node, nodes);
+        return nodes;
+    }
+
+    private static void collectDescendantOrSelf(JNode node, List<Item> into) throws XPathException {
+        into.add(node);
+        for (Item child : SequenceTool.toGroundedValue(node.iterateChildAxis(null)).asIterable()) {
+            collectDescendantOrSelf((JNode) child, into);
+        }
+    }
+
+    /** The single child of {@code node} whose selector matches {@code selector}, or null. */
+    private static JNode stepInto(JNode node, AtomicValue selector) throws XPathException {
+        for (Item childItem : SequenceTool.toGroundedValue(node.iterateChildAxis(null)).asIterable()) {
+            JNode child = (JNode) childItem;
+            AtomicValue childSelector = child.getSelector();
+            boolean matchesString = selector instanceof StringValue && childSelector instanceof StringValue
+                    && childSelector.getStringValue().equals(selector.getStringValue());
+            boolean matchesIndex = selector instanceof IntegerValue && childSelector instanceof IntegerValue
+                    && childSelector.getStringValue().equals(selector.getStringValue());
+            if (matchesString || matchesIndex) {
+                return child;
+            }
+        }
+        return null;
     }
 
     private static XPathException err(String localCode, String message) {
@@ -316,16 +374,64 @@ public final class JNodeFunctions {
         @Override protected SequenceType[] args() { return new SequenceType[]{SequenceType.SINGLE_ITEM}; }
         @Override protected SequenceType result() { return SequenceType.ANY_SEQUENCE; }
         @Override protected Sequence eval(Sequence[] a, XPathContext c) throws XPathException {
-            List<Item> nodes = new ArrayList<>();
-            collect(asJNode(a[0]), nodes);
-            return new ZeroOrMore<>(nodes);
+            return new ZeroOrMore<>(descendantOrSelfList(asJNode(a[0])));
         }
+    }
 
-        private void collect(JNode node, List<Item> into) throws XPathException {
-            into.add(node);
-            for (Item child : SequenceTool.toGroundedValue(node.iterateChildAxis(null)).asIterable()) {
-                collect((JNode) child, into);
+    /**
+     * Direct child (or grandchild, etc.) lookup by key/index — the
+     * ergonomic alternative to
+     * {@code jn:children($n)[jn:key-is(., 'x')]}. A single call:
+     * {@code jn:get($n, 'x')}. A whole path in one call:
+     * {@code jn:get($n, ('a', 'b', 2, 'c'))} — string items match map
+     * keys, integer items match array indices, same type-safety rule as
+     * {@link KeyIs}/{@link IndexIs}. Returns the empty sequence as soon as
+     * any step doesn't match, rather than raising an error — a missing
+     * path is a normal, expected outcome for lookups like this (compare
+     * {@code $map?missing-key}, which is also just empty, not an error).
+     */
+    private static final class Get extends JNodeFn {
+        @Override protected String localName() { return "get"; }
+        @Override protected SequenceType[] args() {
+            return new SequenceType[]{SequenceType.SINGLE_ITEM, SequenceType.ATOMIC_SEQUENCE};
+        }
+        @Override protected SequenceType result() { return SequenceType.OPTIONAL_ITEM; }
+        @Override protected Sequence eval(Sequence[] a, XPathContext c) throws XPathException {
+            JNode current = asJNode(a[0]);
+            SequenceIterator steps = a[1].iterate();
+            Item step;
+            while ((step = steps.next()) != null) {
+                current = stepInto(current, (AtomicValue) step);
+                if (current == null) {
+                    return EmptySequence.getInstance();
+                }
             }
+            return current;
+        }
+    }
+
+    /**
+     * All nodes (at any depth, self included) whose map key is
+     * {@code $key} — the ergonomic alternative to
+     * {@code jn:descendant-or-self($n)[jn:key-is(., $key)]}, i.e. the
+     * direct equivalent of XPath's {@code //key}.
+     */
+    private static final class Find extends JNodeFn {
+        @Override protected String localName() { return "find"; }
+        @Override protected SequenceType[] args() {
+            return new SequenceType[]{SequenceType.SINGLE_ITEM, SequenceType.SINGLE_STRING};
+        }
+        @Override protected SequenceType result() { return SequenceType.ANY_SEQUENCE; }
+        @Override protected Sequence eval(Sequence[] a, XPathContext c) throws XPathException {
+            String key = a[1].head().getStringValue();
+            List<Item> matches = new ArrayList<>();
+            for (Item n : descendantOrSelfList(asJNode(a[0]))) {
+                AtomicValue selector = ((JNode) n).getSelector();
+                if (selector instanceof StringValue && selector.getStringValue().equals(key)) {
+                    matches.add(n);
+                }
+            }
+            return new ZeroOrMore<>(matches);
         }
     }
 }

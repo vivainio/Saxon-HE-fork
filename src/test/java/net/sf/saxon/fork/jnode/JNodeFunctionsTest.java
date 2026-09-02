@@ -176,4 +176,58 @@ class JNodeFunctionsTest {
                 "let $root := jn:node(parse-json('" + JSON + "')) " +
                         "return jn:value(jn:descendant-or-self($root)[jn:key-is(., 'd')])"));
     }
+
+    @Test
+    void functionsAutoWrapRawMapOrArrayWithoutJnNode() throws Exception {
+        // No jn:node() call anywhere here.
+        assertEquals("true", evalStr("jn:has-children(parse-json('" + JSON + "'))"));
+        assertEquals("b", evalStr(
+                "jn:selector(jn:children(parse-json('" + JSON + "'))[jn:key-is(., 'b')])"));
+    }
+
+    @Test
+    void getSingleStepFindsMapEntry() throws Exception {
+        assertEquals("hi", evalStr(
+                "jn:value(jn:get(jn:get(parse-json('" + JSON + "'), 'c'), 'd'))"));
+    }
+
+    @Test
+    void getMultiStepPathInOneCall() throws Exception {
+        assertEquals("hi", evalStr(
+                "jn:value(jn:get(parse-json('" + JSON + "'), ('c', 'd')))"));
+    }
+
+    @Test
+    void getMixesStringAndIntegerSteps() throws Exception {
+        assertEquals("20", evalStr(
+                "jn:value(jn:get(parse-json('" + JSON + "'), ('b', 2)))"));
+    }
+
+    @Test
+    void getIsEmptyNotErrorOnMissingKey() throws Exception {
+        assertEquals("true", evalStr(
+                "empty(jn:get(parse-json('" + JSON + "'), ('c', 'nope')))"));
+    }
+
+    @Test
+    void getIsEmptyNotErrorOnWrongTypedStep() throws Exception {
+        // 'b' is an array; asking for map key 'x' on it must not throw.
+        assertEquals("true", evalStr(
+                "empty(jn:get(parse-json('" + JSON + "'), ('b', 'x')))"));
+    }
+
+    @Test
+    void findReturnsAllMatchesAtAnyDepth() throws Exception {
+        String nested = "{\"a\":{\"tag\":1},\"b\":[{\"tag\":2},{\"tag\":3}]}";
+        assertEquals("3", evalStr("count(jn:find(parse-json('" + nested + "'), 'tag'))"));
+        assertEquals("1 2 3", evalStr(
+                "string-join(for $t in jn:find(parse-json('" + nested + "'), 'tag') " +
+                        "return string(jn:value($t)), ' ')"));
+    }
+
+    @Test
+    void findIsEmptyWhenKeyNeverOccurs() throws Exception {
+        assertEquals("0", evalStr(
+                "count(jn:find(parse-json('" + JSON + "'), 'nope'))"));
+    }
 }
