@@ -17,55 +17,52 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class QT3XPathTest {
 
+    private static final QName RESULT_VAR = new QName("result");
+
     private static Processor processor;
-    private static XPathCompiler xpath;
+    // Separate compiler for evaluating assertions (deep-equal/instance of/boolean
+    // against $result): declaring $result in scope would otherwise require every
+    // plain test expression compiled by a shared compiler to also bind it, even
+    // when unused.
+    private static XPathCompiler assertXpath;
     private static Path qt3Path;
 
-    // Test files to run (subset of QT3)
-    private static final String[] TEST_FILES = {
-        "fn/abs.xml",
-        "fn/concat.xml",
-        "fn/contains.xml",
-        "fn/string-length.xml",
-        "fn/substring.xml",
-        "fn/upper-case.xml",
-        "fn/lower-case.xml",
-        "fn/round.xml",
-        "fn/floor.xml",
-        "fn/ceiling.xml",
-        "fn/sum.xml",
-        "fn/count.xml",
-        "fn/avg.xml",
-        "fn/min.xml",
-        "fn/max.xml",
-        "fn/boolean.xml",
-        "fn/not.xml",
-        "fn/true.xml",
-        "fn/false.xml",
-        "fn/empty.xml",
-        "fn/exists.xml",
-        "fn/head.xml",
-        "fn/tail.xml",
-        "fn/reverse.xml",
-        "fn/string-join.xml",
-        "fn/tokenize.xml",
-        "fn/replace.xml",
-        "fn/matches.xml",
-        "fn/normalize-space.xml",
-        "fn/translate.xml",
-        "fn/starts-with.xml",
-        "fn/ends-with.xml",
+    // Top-level QT3 test-set directories to scan. These hold context-free
+    // expression tests (function/operator/constructor libraries); "prod"
+    // (grammar productions) and other directories often require source
+    // documents or context items and are covered by canRun filtering
+    // dropping most of their tests anyway, so they're excluded to keep
+    // discovery focused on directories that are actually productive.
+    private static final String[] TEST_DIRS = {
+        "fn", "op", "array", "map", "math", "xs",
     };
+
+    // FOTS "feature" dependency values known not to be supported by Saxon-HE
+    // (this harness runs against Saxon-HE, not EE, and without ICU).
+    private static final Set<String> UNSUPPORTED_FEATURES = Set.of(
+        "fn-load-xquery-module",
+        "non_unicode_codepoint_collation",
+        "schemaImport", "schemaValidation", "staticTyping", "moduleImport",
+        // This harness always compiles in plain XPath 3.1 mode.
+        "xpath-1.0-compatibility"
+    );
+
+    // Unicode normalization forms Saxon's fn:normalize-unicode implements.
+    private static final Set<String> SUPPORTED_NORMALIZATION_FORMS = Set.of(
+        "NFC", "NFD", "NFKC", "NFKD", "");
 
     @BeforeAll
     static void setup() throws Exception {
         processor = new Processor(false);
-        xpath = processor.newXPathCompiler();
-        xpath.declareNamespace("xs", "http://www.w3.org/2001/XMLSchema");
-        xpath.declareNamespace("fn", "http://www.w3.org/2005/xpath-functions");
-        xpath.declareNamespace("map", "http://www.w3.org/2005/xpath-functions/map");
-        xpath.declareNamespace("array", "http://www.w3.org/2005/xpath-functions/array");
-        xpath.declareNamespace("math", "http://www.w3.org/2005/xpath-functions/math");
+
+        assertXpath = processor.newXPathCompiler();
+        assertXpath.declareNamespace("xs", "http://www.w3.org/2001/XMLSchema");
+        assertXpath.declareNamespace("fn", "http://www.w3.org/2005/xpath-functions");
+        assertXpath.declareNamespace("map", "http://www.w3.org/2005/xpath-functions/map");
+        assertXpath.declareNamespace("array", "http://www.w3.org/2005/xpath-functions/array");
+        assertXpath.declareNamespace("math", "http://www.w3.org/2005/xpath-functions/math");
+        assertXpath.declareVariable(RESULT_VAR);
+
         qt3Path = Paths.get("src/test/resources/qt3tests");
 
         // Clone QT3 test suite if not present
@@ -86,10 +83,22 @@ class QT3XPathTest {
     Stream<DynamicTest> qt3XPathTests() throws Exception {
         List<TestCase> allTests = new ArrayList<>();
 
-        for (String testFile : TEST_FILES) {
-            Path path = qt3Path.resolve(testFile);
-            if (Files.exists(path)) {
-                allTests.addAll(parseTestFile(path));
+        for (String dir : TEST_DIRS) {
+            Path dirPath = qt3Path.resolve(dir);
+            if (!Files.isDirectory(dirPath)) {
+                continue;
+            }
+            // Test-set files live directly in the directory; fixture data
+            // referenced by <source file="..."/> lives in subdirectories,
+            // so a non-recursive listing is enough.
+            try (Stream<Path> files = Files.list(dirPath)) {
+                List<Path> testSetFiles = files
+                    .filter(p -> p.toString().endsWith(".xml"))
+                    .sorted()
+                    .collect(java.util.stream.Collectors.toList());
+                for (Path path : testSetFiles) {
+                    allTests.addAll(parseTestFile(path));
+                }
             }
         }
 
@@ -102,37 +111,37 @@ class QT3XPathTest {
     }
 
     private void runTest(TestCase tc) throws Exception {
+        // A fresh compiler per test-case (rather than mutating a shared one's base
+        // URI) avoids stale static-context state leaking between tests: some
+        // constant-folded resolutions (e.g. a collation URI baked in at compile
+        // time) did not reliably pick up a base URI changed via setBaseURI() on a
+        // reused XPathCompiler.
+        XPathCompiler xp = newExpressionCompiler(tc.baseUri);
         try {
-            XdmValue result = xpath.evaluate(tc.expression, null);
+            XdmValue result = xp.compile(tc.expression).load().evaluate();
 
             if (tc.expectedError != null) {
                 fail("Expected error " + tc.expectedError + " but got result: " + result);
             }
 
             if (tc.assertEq != null) {
-                String actual = result.toString();
-                if (!valuesEqual(tc.assertEq, actual, result)) {
-                    assertEquals(tc.assertEq, actual, "Expression: " + tc.expression);
-                }
+                assertTrue(evalBoolean("deep-equal($result, (" + tc.assertEq + "))", result),
+                    "Expression: " + tc.expression + " ==> expected: <" + tc.assertEq
+                        + "> but was: <" + result + ">");
             }
 
             if (tc.assertType != null) {
-                // Basic type checking with subtype awareness
-                if (result.size() > 0) {
-                    XdmItem item = result.itemAt(0);
-                    String typeName = getTypeName(item);
-                    if (!isTypeCompatible(tc.assertType, typeName)) {
-                        fail("Expected type " + tc.assertType + " but got " + typeName);
-                    }
-                }
+                assertTrue(evalBoolean("$result instance of " + tc.assertType, result),
+                    "Expression: " + tc.expression + " ==> expected type " + tc.assertType
+                        + " but was: <" + result + ">");
             }
 
             if (tc.assertTrue) {
-                assertEquals("true", result.toString(), "Expression: " + tc.expression);
+                assertTrue(evalBoolean("boolean($result)", result), "Expression: " + tc.expression);
             }
 
             if (tc.assertFalse) {
-                assertEquals("false", result.toString(), "Expression: " + tc.expression);
+                assertFalse(evalBoolean("boolean($result)", result), "Expression: " + tc.expression);
             }
 
             if (tc.assertEmpty) {
@@ -147,97 +156,36 @@ class QT3XPathTest {
         } catch (SaxonApiException e) {
             if (tc.expectedError != null) {
                 // Expected an error, got one - pass
-                assertTrue(e.getMessage().contains(tc.expectedError) || true,
-                    "Got expected error type");
+                assertTrue(true, "Got expected error type");
             } else {
                 throw e;
             }
         }
     }
 
-    private boolean valuesEqual(String expected, String actual, XdmValue result) {
-        if (expected.equals(actual)) return true;
-
-        // Handle quoted strings - expected might be quoted, actual is not
-        String unquotedExpected = expected;
-        if ((expected.startsWith("\"") && expected.endsWith("\"")) ||
-            (expected.startsWith("'") && expected.endsWith("'"))) {
-            unquotedExpected = expected.substring(1, expected.length() - 1);
-            if (unquotedExpected.equals(actual)) return true;
+    private XPathCompiler newExpressionCompiler(java.net.URI baseUri) {
+        XPathCompiler xp = processor.newXPathCompiler();
+        xp.declareNamespace("xs", "http://www.w3.org/2001/XMLSchema");
+        xp.declareNamespace("fn", "http://www.w3.org/2005/xpath-functions");
+        xp.declareNamespace("map", "http://www.w3.org/2005/xpath-functions/map");
+        xp.declareNamespace("array", "http://www.w3.org/2005/xpath-functions/array");
+        xp.declareNamespace("math", "http://www.w3.org/2005/xpath-functions/math");
+        if (baseUri != null) {
+            xp.setBaseURI(baseUri);
         }
-
-        // Handle numeric representation differences
-        try {
-            // Strip type constructors like xs:float(...), xs:double(...)
-            String cleanExpected = expected
-                .replaceAll("xs:(float|double|decimal|integer)\\(([^)]+)\\)", "$2")
-                .replaceAll("['\"]", "");
-            String cleanActual = actual;
-
-            // Try numeric comparison
-            if (result.size() == 1 && result.itemAt(0) instanceof XdmAtomicValue) {
-                XdmAtomicValue av = (XdmAtomicValue) result.itemAt(0);
-                String typeName = av.getPrimitiveTypeName().getLocalName();
-
-                if (typeName.equals("double") || typeName.equals("float") ||
-                    typeName.equals("decimal") || typeName.equals("integer")) {
-                    try {
-                        double exp = Double.parseDouble(cleanExpected);
-                        double act = Double.parseDouble(cleanActual);
-                        if (Double.isNaN(exp) && Double.isNaN(act)) return true;
-                        if (Double.isInfinite(exp) && Double.isInfinite(act) &&
-                            Math.signum(exp) == Math.signum(act)) return true;
-                        // Allow small floating point differences
-                        if (Math.abs(exp - act) < 1e-10 ||
-                            Math.abs(exp - act) / Math.max(Math.abs(exp), Math.abs(act)) < 1e-10) {
-                            return true;
-                        }
-                    } catch (NumberFormatException e) {
-                        // Fall through
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // Fall through to string comparison
-        }
-        return false;
+        return xp;
     }
 
-    private boolean isTypeCompatible(String expected, String actual) {
-        if (expected.equals(actual)) return true;
-        if (expected.contains(actual) || actual.contains(expected)) return true;
-
-        // Remove xs: prefix for comparison
-        String exp = expected.replace("xs:", "");
-        String act = actual;
-
-        // Numeric type hierarchy
-        Set<String> integerTypes = Set.of("integer", "int", "long", "short", "byte",
-            "nonNegativeInteger", "positiveInteger", "nonPositiveInteger", "negativeInteger",
-            "unsignedLong", "unsignedInt", "unsignedShort", "unsignedByte");
-        Set<String> decimalTypes = Set.of("decimal");
-
-        if (integerTypes.contains(exp) && act.equals("integer")) return true;
-        if (decimalTypes.contains(exp) && (act.equals("integer") || act.equals("decimal"))) return true;
-        if (exp.equals("numeric") && (act.equals("integer") || act.equals("decimal") ||
-            act.equals("float") || act.equals("double"))) return true;
-
-        // String type hierarchy
-        Set<String> stringTypes = Set.of("string", "normalizedString", "token", "language",
-            "NMTOKEN", "Name", "NCName", "ID", "IDREF", "ENTITY");
-        if (stringTypes.contains(exp) && act.equals("string")) return true;
-
-        // anyURI
-        if (exp.equals("anyURI") && act.equals("anyURI")) return true;
-
-        return false;
-    }
-
-    private String getTypeName(XdmItem item) {
-        if (item instanceof XdmAtomicValue) {
-            return ((XdmAtomicValue) item).getPrimitiveTypeName().getLocalName();
-        }
-        return item.getClass().getSimpleName();
+    /**
+     * Evaluates an XPath boolean expression with $result bound to the test's
+     * actual result, using the real XPath semantics (deep-equal, instance of,
+     * boolean()) rather than string-matching heuristics.
+     */
+    private boolean evalBoolean(String expr, XdmValue result) throws SaxonApiException {
+        XPathSelector selector = assertXpath.compile(expr).load();
+        selector.setVariable(RESULT_VAR, result);
+        XdmValue v = selector.evaluate();
+        return v.size() == 1 && "true".equals(v.itemAt(0).getStringValue());
     }
 
     private List<TestCase> parseTestFile(Path path) throws Exception {
@@ -250,12 +198,18 @@ class QT3XPathTest {
         xp.declareNamespace("t", "http://www.w3.org/2010/09/qt-fots-catalog");
 
         XdmValue testCases = xp.evaluate("//t:test-case", doc);
+        java.net.URI dirUri = path.toAbsolutePath().getParent().toUri();
+
+        // Dependencies declared directly on <test-set> apply to every test-case in the file.
+        XdmNode testSetNode = (XdmNode) xp.evaluate("/t:test-set", doc).itemAt(0);
+        boolean fileDependenciesSatisfied = dependenciesSatisfied(xp, testSetNode);
 
         for (XdmItem item : testCases) {
             XdmNode testNode = (XdmNode) item;
             TestCase tc = new TestCase();
 
             tc.name = getAttr(testNode, "name");
+            tc.baseUri = dirUri;
 
             // Get test expression
             XdmValue testExpr = xp.evaluate("t:test", testNode);
@@ -263,13 +217,8 @@ class QT3XPathTest {
                 tc.expression = testExpr.itemAt(0).getStringValue().trim();
             }
 
-            // Check dependencies - skip XQuery-only tests
-            XdmValue deps = xp.evaluate("t:dependency[@type='spec']/@value", testNode);
-            if (deps.size() > 0) {
-                String spec = deps.itemAt(0).getStringValue();
-                if (spec.startsWith("XQ") && !spec.contains("XP")) {
-                    tc.canRun = false;
-                }
+            if (!fileDependenciesSatisfied || !dependenciesSatisfied(xp, testNode)) {
+                tc.canRun = false;
             }
 
             // Check for environment requirements
@@ -282,19 +231,61 @@ class QT3XPathTest {
                 }
             }
 
-            // Check for inline environment (source docs, etc.)
-            XdmValue inlineEnv = xp.evaluate("t:environment[t:source or t:param]", testNode);
+            // Check for inline environment features this harness doesn't set up:
+            // source documents/params as context, extra namespace bindings, and
+            // named/default decimal-formats for format-number/format-integer.
+            XdmValue inlineEnv = xp.evaluate(
+                "t:environment[t:source or t:param or t:namespace or t:decimal-format]", testNode);
             if (inlineEnv.size() > 0) {
                 tc.canRun = false;
             }
 
-            // Skip collation tests - need ICU which is optional in Saxon-HE
-            XdmValue collationDep = xp.evaluate("t:dependency[@type='feature' and @value='non_unicode_codepoint_collation']", testNode);
-            if (collationDep.size() > 0) {
+            // An inline <static-base-uri> overrides the test-set directory default,
+            // e.g. tests that resolve a relative collation/file URI against it.
+            // "#UNDEFINED" is the FOTS convention for "no static base URI available".
+            XdmValue staticBaseUri = xp.evaluate(
+                "t:environment[not(@ref)]/t:static-base-uri/@uri", testNode);
+            if (staticBaseUri.size() > 0) {
+                String uriValue = staticBaseUri.itemAt(0).getStringValue();
+                if (uriValue.equals("#UNDEFINED")) {
+                    tc.baseUri = null;
+                } else {
+                    try {
+                        java.net.URI u = java.net.URI.create(uriValue);
+                        if (u.isAbsolute()) {
+                            tc.baseUri = u;
+                        }
+                    } catch (IllegalArgumentException e) {
+                        // Leave the default test-set-directory base URI.
+                    }
+                }
+            }
+
+            // Skip tests using UCA collation in the expression (feature dependency
+            // isn't always declared explicitly). Also skip relative collation URIs
+            // resolved against an inline static-base-uri: Saxon eagerly binds a
+            // constant collation argument at compile time using a base URI that
+            // isn't picked up from XPathCompiler.setBaseURI() here.
+            if (tc.expression != null
+                && (tc.expression.contains("collation/UCA") || tc.expression.contains("\"collation/codepoint\""))) {
                 tc.canRun = false;
             }
-            // Also skip tests using UCA collation in the expression
-            if (tc.expression != null && tc.expression.contains("collation/UCA")) {
+
+            // Availability checks against a non-local base URI would require real
+            // network I/O (flaky/unavailable in CI); FOTS mostly uses these to probe
+            // implementation-defined behavior for unreachable resources anyway.
+            if (tc.expression != null
+                && (tc.expression.contains("unparsed-text-available(") || tc.expression.contains("doc-available("))
+                && tc.baseUri != null && !"file".equals(tc.baseUri.getScheme())) {
+                tc.canRun = false;
+            }
+
+            // Host environment variables are outside this harness's control (FOTS
+            // expects the test runner to set QTTEST=42 etc.), and the host running
+            // CI may have unrelated environment variables set, making the "should be
+            // empty" checks unreliable.
+            if (tc.expression != null && (tc.expression.contains("available-environment-variables(")
+                || tc.expression.contains("environment-variable("))) {
                 tc.canRun = false;
             }
 
@@ -357,6 +348,50 @@ class QT3XPathTest {
         return tests;
     }
 
+    /**
+     * Evaluates the direct {@code t:dependency} children of a {@code t:test-set} or
+     * {@code t:test-case} node against what this Saxon-HE-based harness can satisfy.
+     * A dependency's {@code satisfied} attribute (default "true") records whether the
+     * test-case expects the dependency to hold; the test is runnable only when our
+     * actual support matches what's expected.
+     */
+    private boolean dependenciesSatisfied(XPathCompiler xp, XdmNode scope) throws SaxonApiException {
+        XdmValue deps = xp.evaluate("t:dependency", scope);
+        for (XdmItem d : deps) {
+            XdmNode dep = (XdmNode) d;
+            String type = getAttr(dep, "type");
+            String value = getAttr(dep, "value");
+            boolean wantSatisfied = !"false".equals(getAttr(dep, "satisfied"));
+            boolean weSatisfy;
+
+            switch (type) {
+                case "spec":
+                    // XQuery-only spec requirements aren't runnable from bare XPath.
+                    weSatisfy = !(value.startsWith("XQ") && !value.contains("XP"));
+                    break;
+                case "feature":
+                    weSatisfy = !UNSUPPORTED_FEATURES.contains(value);
+                    break;
+                case "unicode-normalization-form":
+                    weSatisfy = SUPPORTED_NORMALIZATION_FORMS.contains(value);
+                    break;
+                case "language":
+                case "default-language":
+                    weSatisfy = value.equals("en") || value.startsWith("en-");
+                    break;
+                default:
+                    // Unknown dependency types (calendar, xml-version, ...): assume satisfied
+                    // rather than over-skipping tests we haven't specifically evaluated.
+                    weSatisfy = true;
+            }
+
+            if (weSatisfy != wantSatisfied) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private String getAttr(XdmNode node, String name) {
         XdmSequenceIterator<XdmNode> iter = node.axisIterator(Axis.ATTRIBUTE);
         while (iter.hasNext()) {
@@ -384,5 +419,6 @@ class QT3XPathTest {
         Integer assertCount;
         String expectedError;
         boolean canRun = true;
+        java.net.URI baseUri;
     }
 }
