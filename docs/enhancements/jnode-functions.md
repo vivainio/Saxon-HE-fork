@@ -4,7 +4,7 @@
 **Author:** Copyright © Ville Vainio
 **License:** Mozilla Public License 2.0 — same as the rest of this fork.
 **Origin:** Independent implementation built on top of Saxon-HE 13.0's
-own `net.sf.saxon.ma.jnode.*` classes (see [Background](#background)).
+own `net.sf.saxon.ma.jnode.*` classes.
 
 ## Purpose
 
@@ -14,34 +14,23 @@ navigable, identity-bearing nodes with parent links and positions,
 much like an XML tree. But the native `/` path operator only routes
 through them when the static XPath language level is raised to 40, and
 doing that calls `Configuration.checkLicensedFeature`, which requires
-Saxon-PE. This module exposes the same underlying JNode object model
-as ordinary extension functions instead of `/` syntax, so it works on
-Saxon-HE.
+Saxon-PE — Saxonica's real commercial HE/PE boundary, not a bug, and
+not something this fork patches around.
 
-## Background
+What *is* usable on HE is the JNode object model itself: its
+axis-walking methods (`getParent()`, `iterateChildAxis()`,
+`getContent()`, `getSelector()`, `getPosition()`, `hasChildNodes()`)
+are ordinary public methods with no license check anywhere in the call
+path — confirmed by grepping the entire `net.sf.saxon.ma.jnode`
+package for `checkLicensedFeature`/`LicenseException`/`LicenseFeature`:
+nothing. Saxonica even ships a ready s9api wrapper for it, `XdmJNode`
+(`@since 13.0`), as a public class.
 
-This started from pulling Saxon 13.0 in as this fork's vendored base
-and checking which parts of Saxon 13's "XPath 4.0" feature list are
-genuinely present in the open-source HE tree. Some are (e.g. regex
-lookahead/lookbehind — see `RegexLookaroundTest`); JNode navigation via
-`/` specifically is not, because of the license check above.
-
-That check is Saxonica's real commercial HE/PE boundary, not a bug,
-and **this fork does not patch around it** — see the commit history /
-conversation that led here for the reasoning. What *is* fair game is
-the JNode object model itself: its axis-walking methods
-(`getParent()`, `iterateChildAxis()`, `getContent()`, `getSelector()`,
-`getPosition()`, `hasChildNodes()`) are ordinary public methods with
-no license check anywhere in the call path — confirmed by grepping the
-entire `net.sf.saxon.ma.jnode` package for
-`checkLicensedFeature`/`LicenseException`/`LicenseFeature`: nothing.
-Saxonica even ships a ready s9api wrapper for it, `XdmJNode` (`@since
-13.0`), as a public class.
-
-So this module is a from-scratch, independent navigation surface (a
-family of extension functions) built on top of those already-open,
-already-MPL-licensed data structures — not a reuse or rewiring of the
-gated `/`-operator feature.
+This module is a from-scratch navigation surface (a family of
+extension functions) built on top of those already-open,
+already-MPL-licensed data structures, using function calls instead of
+`/` syntax — not a reuse or rewiring of the gated `/`-operator
+feature.
 
 ## vs. plain map/array access (the "old way")
 
