@@ -98,11 +98,42 @@ return (
 )
 ```
 
-Recursive descent (e.g. to reimplement something like `//*` over a
-JSON document) is just an ordinary recursive function using
-`jn:children`/`jn:value`/`jn:has-children` — there's no native `/` or
-`//` shortcut, since that's exactly the part that requires the license
-check.
+### Recursive descent: flattening JSON to dotted paths
+
+There's no native `/` or `//` shortcut (that's the gated part), but
+recursive descent is a normal recursive function. This flattens any
+JSON value to `path = value` lines, mixing `.key` for map entries and
+`[index]` for array members:
+
+```xquery
+declare namespace jn = "http://github.com/vivainio/saxon-he-fork/jnode";
+
+declare function local:flatten($node as item(), $path as xs:string) as xs:string* {
+  if (jn:has-children($node))
+  then
+    for $child in jn:children($node)
+    let $sel := jn:selector($child)
+    let $childPath :=
+      if ($sel instance of xs:integer)
+      then $path || '[' || $sel || ']'
+      else if ($path = '') then xs:string($sel)
+      else $path || '.' || $sel
+    return local:flatten($child, $childPath)
+  else
+    $path || ' = ' || jn:value($node)
+};
+
+let $json := parse-json(
+    '{"user":{"name":"Ada","tags":["admin","dev"]},"active":true}')
+return string-join(local:flatten(jn:node($json), ''), '&#10;')
+
+(: →
+user.name = Ada
+user.tags[1] = admin
+user.tags[2] = dev
+active = true
+:)
+```
 
 ## Error codes
 
