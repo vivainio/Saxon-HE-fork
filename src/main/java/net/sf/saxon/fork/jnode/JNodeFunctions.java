@@ -13,14 +13,19 @@ import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.om.StructuredQName;
+import net.sf.saxon.om.ZeroOrMore;
 import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.value.AtomicValue;
 import net.sf.saxon.value.BooleanValue;
 import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.Int64Value;
+import net.sf.saxon.value.IntegerValue;
 import net.sf.saxon.value.SequenceType;
+import net.sf.saxon.value.StringValue;
 
 import javax.xml.transform.TransformerException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * JSON structures navigable as generalized nodes (JNode), built directly on
@@ -75,6 +80,16 @@ import javax.xml.transform.TransformerException;
  *   <li>{@code jn:is-node($item as item()?) as xs:boolean} — true if the
  *       argument is a JNode produced by {@code jn:node()}/{@code jn:children()}
  *       /etc.</li>
+ *   <li>{@code jn:key-is($node as item(), $name as xs:string) as xs:boolean}
+ *       — type-safe map-key test; {@code false} (not an error) if the
+ *       node's selector isn't a string.</li>
+ *   <li>{@code jn:index-is($node as item(), $n as xs:integer) as xs:boolean}
+ *       — type-safe array-index test; {@code false} (not an error) if the
+ *       node's selector isn't an integer.</li>
+ *   <li>{@code jn:descendant-or-self($node as item()) as item()*} — this
+ *       node, then every descendant, depth-first document order. The
+ *       primitive for emulating {@code //name} via
+ *       {@code jn:descendant-or-self($n)[jn:key-is(., 'name')]}.</li>
  * </ul>
  *
  * <p>Not implemented (out of scope for this fork's "pragmatic subset"
@@ -106,6 +121,9 @@ public final class JNodeFunctions {
         config.registerExtensionFunction(new Value());
         config.registerExtensionFunction(new HasChildren());
         config.registerExtensionFunction(new IsNode());
+        config.registerExtensionFunction(new KeyIs());
+        config.registerExtensionFunction(new IndexIs());
+        config.registerExtensionFunction(new DescendantOrSelf());
     }
 
     /**
@@ -246,6 +264,68 @@ public final class JNodeFunctions {
         @Override protected SequenceType result() { return SequenceType.SINGLE_BOOLEAN; }
         @Override protected Sequence eval(Sequence[] a, XPathContext c) throws XPathException {
             return BooleanValue.get(a[0].head() instanceof JNode);
+        }
+    }
+
+    /**
+     * Type-safe map-key test. Plain {@code jn:selector(.) = 'x'} throws
+     * ("Cannot compare xs:integer to xs:string") when applied to a mixed
+     * sequence of map-entry and array-member nodes; this returns {@code
+     * false} instead, so it's safe to use as a filter over
+     * {@code jn:descendant-or-self()} or any other mixed node sequence.
+     */
+    private static final class KeyIs extends JNodeFn {
+        @Override protected String localName() { return "key-is"; }
+        @Override protected SequenceType[] args() {
+            return new SequenceType[]{SequenceType.SINGLE_ITEM, SequenceType.SINGLE_STRING};
+        }
+        @Override protected SequenceType result() { return SequenceType.SINGLE_BOOLEAN; }
+        @Override protected Sequence eval(Sequence[] a, XPathContext c) throws XPathException {
+            AtomicValue selector = asJNode(a[0]).getSelector();
+            String name = a[1].head().getStringValue();
+            return BooleanValue.get(selector instanceof StringValue && selector.getStringValue().equals(name));
+        }
+    }
+
+    /**
+     * Type-safe array-index test — the array-member counterpart of
+     * {@link KeyIs}. Compares by canonical string form so it doesn't need
+     * to pick between {@code Int64Value}/{@code BigIntegerValue}.
+     */
+    private static final class IndexIs extends JNodeFn {
+        @Override protected String localName() { return "index-is"; }
+        @Override protected SequenceType[] args() {
+            return new SequenceType[]{SequenceType.SINGLE_ITEM, SequenceType.SINGLE_INTEGER};
+        }
+        @Override protected SequenceType result() { return SequenceType.SINGLE_BOOLEAN; }
+        @Override protected Sequence eval(Sequence[] a, XPathContext c) throws XPathException {
+            AtomicValue selector = asJNode(a[0]).getSelector();
+            String index = a[1].head().getStringValue();
+            return BooleanValue.get(selector instanceof IntegerValue && selector.getStringValue().equals(index));
+        }
+    }
+
+    /**
+     * {@code descendant-or-self::} for JNodes, in document order (this node
+     * first, then each child's own descendant-or-self, depth-first) — the
+     * primitive needed to emulate {@code //name} via
+     * {@code jn:descendant-or-self($n)[jn:key-is(., 'name')]}.
+     */
+    private static final class DescendantOrSelf extends JNodeFn {
+        @Override protected String localName() { return "descendant-or-self"; }
+        @Override protected SequenceType[] args() { return new SequenceType[]{SequenceType.SINGLE_ITEM}; }
+        @Override protected SequenceType result() { return SequenceType.ANY_SEQUENCE; }
+        @Override protected Sequence eval(Sequence[] a, XPathContext c) throws XPathException {
+            List<Item> nodes = new ArrayList<>();
+            collect(asJNode(a[0]), nodes);
+            return new ZeroOrMore<>(nodes);
+        }
+
+        private void collect(JNode node, List<Item> into) throws XPathException {
+            into.add(node);
+            for (Item child : SequenceTool.toGroundedValue(node.iterateChildAxis(null)).asIterable()) {
+                collect((JNode) child, into);
+            }
         }
     }
 }

@@ -125,4 +125,55 @@ class JNodeFunctionsTest {
                         "    $d := jn:children($c)[jn:selector(.) = 'd'] " +
                         "return jn:value($d)"));
     }
+
+    @Test
+    void keyIsMatchesMapEntrySelector() throws Exception {
+        assertEquals("hi", evalStr(
+                "let $root := jn:node(parse-json('" + JSON + "')), " +
+                        "    $c := jn:children($root)[jn:key-is(., 'c')], " +
+                        "    $d := jn:children($c)[jn:key-is(., 'd')] " +
+                        "return jn:value($d)"));
+    }
+
+    @Test
+    void keyIsIsFalseNotAnErrorOnArrayMember() throws Exception {
+        // jn:selector(.) = 'x' would throw here (integer vs string);
+        // jn:key-is must not.
+        assertEquals("false", evalStr(
+                "let $root := jn:node(parse-json('" + JSON + "')), " +
+                        "    $b1 := jn:children(jn:children($root)[jn:key-is(., 'b')])[1] " +
+                        "return jn:key-is($b1, 'anything')"));
+    }
+
+    @Test
+    void indexIsMatchesArrayMemberSelector() throws Exception {
+        assertEquals("20", evalStr(
+                "let $root := jn:node(parse-json('" + JSON + "')), " +
+                        "    $b  := jn:children($root)[jn:key-is(., 'b')], " +
+                        "    $b2 := jn:children($b)[jn:index-is(., 2)] " +
+                        "return jn:value($b2)"));
+    }
+
+    @Test
+    void indexIsIsFalseNotAnErrorOnMapEntry() throws Exception {
+        assertEquals("false", evalStr(
+                "let $root := jn:node(parse-json('" + JSON + "')), " +
+                        "    $c := jn:children($root)[jn:key-is(., 'c')] " +
+                        "return jn:index-is($c, 1)"));
+    }
+
+    @Test
+    void descendantOrSelfIncludesSelfAndAllDescendants() throws Exception {
+        // root + a + b + b[1] + b[2] + b[3] + c + c/d = 8
+        assertEquals("8", evalStr(
+                "count(jn:descendant-or-self(jn:node(parse-json('" + JSON + "'))))"));
+    }
+
+    @Test
+    void descendantOrSelfEmulatesDoubleSlashSearch() throws Exception {
+        // //d, Balisage-paper style: descendant-or-self + key filter
+        assertEquals("hi", evalStr(
+                "let $root := jn:node(parse-json('" + JSON + "')) " +
+                        "return jn:value(jn:descendant-or-self($root)[jn:key-is(., 'd')])"));
+    }
 }

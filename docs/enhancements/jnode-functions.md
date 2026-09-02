@@ -43,6 +43,50 @@ family of extension functions) built on top of those already-open,
 already-MPL-licensed data structures — not a reuse or rewiring of the
 gated `/`-operator feature.
 
+## vs. plain map/array access (the "old way")
+
+Saxon-HE has had XPath 3.1 map/array support for years — `$map?key`,
+`$array?1`, `map:for-each`, `array:for-each`, or your own recursive
+function over `map(*)`/`array(*)`. That's often the simpler tool, and
+this module doesn't replace it. Use `?key` when you already know the
+shape you're looking for; reach for `jn:*` when you don't.
+
+The gap the old way has is **identity and parentage**. A value you get
+back from `$map?address` is just a value — it has no idea it came from
+`$map` under key `"address"`. A generic recursive walker (a JSON diff,
+a search-by-predicate, a flattener — anything that doesn't know the
+shape ahead of time) has to carry that context down by hand, as an
+extra accumulator parameter:
+
+```xquery
+(: old way: parent/path context threaded manually :)
+declare function local:find-old($value as item()*, $key as xs:string, $path as xs:string) as xs:string* {
+  if ($value instance of map(*))
+  then for $k in map:keys($value)
+       return (if ($k = $key) then $path || '/' || $k else (),
+               local:find-old($value($k), $key, $path || '/' || $k))
+  else if ($value instance of array(*))
+  then for $i in 1 to array:size($value)
+       return local:find-old($value($i), $key, $path || '[' || $i || ']')
+  else ()
+};
+```
+
+```xquery
+(: jn: way: parentage is intrinsic to the node, nothing to thread :)
+declare namespace jn = "http://github.com/vivainio/saxon-he-fork/jnode";
+jn:descendant-or-self($root)[jn:key-is(., $key)] ! jn:selector(jn:parent(.))
+```
+
+Both work. The `jn:` version reads closer to the equivalent XPath over
+XML (`//*[local-name() = $key]`) because the tree structure — parent
+links, position, "what key got me here" — is a property of the node
+you're holding, not something the caller has to reconstruct. The
+predicate-filtering style (`jn:children($x)[predicate]`,
+`jn:descendant-or-self($x)[predicate]`) is also uniform across maps
+and arrays, where the old way needs `map:for-each` vs `array:for-each`
+depending on what you're looking at.
+
 ## Functions
 
 All under namespace `http://github.com/vivainio/saxon-he-fork/jnode`
@@ -60,6 +104,9 @@ Conventional prefix `jn:`.
 | `jn:value` | `($node as item()) as item()*` | The JSON value wrapped by this node: a map, an array, or an atomic value. |
 | `jn:has-children` | `($node as item()) as xs:boolean` | True if the wrapped value is a non-empty map or array. |
 | `jn:is-node` | `($item as item()?) as xs:boolean` | True if the argument is a JNode produced by this module. Empty sequence and non-JNode items both give `false`. |
+| `jn:key-is` | `($node as item(), $name as xs:string) as xs:boolean` | Type-safe map-key test: `false` (not an error) if `$node`'s selector isn't a string, e.g. an array member. |
+| `jn:index-is` | `($node as item(), $n as xs:integer) as xs:boolean` | Type-safe array-index test: `false` (not an error) if `$node`'s selector isn't an integer, e.g. a map entry. |
+| `jn:descendant-or-self` | `($node as item()) as item()*` | `$node` itself, then every descendant, depth-first document order. The primitive for emulating `//name` (see below). |
 
 All arguments/results that carry a JNode are typed `item()`, not a
 dedicated JNode item type — see [Design notes](#design-notes).
@@ -98,12 +145,66 @@ return (
 )
 ```
 
+### Emulating `//name` with `jn:descendant-or-self`
+
+There's no native `/` or `//` operator (that's the gated part), but
+[the paper that designed this feature](https://www.balisage.net/Proceedings/vol30/html/Kay01/BalisageVol30-Kay01.html)
+uses a classic JSON "bookstore" example to show off `//author`,
+`[price lt 10]`, `[isbn]`, `[last()]`, and parent-navigation
+predicates. Every one of these has a direct `jn:*` equivalent —
+ordinary XPath predicates already work over `jn:children(...)` and
+`jn:descendant-or-self(...)` results, you just reach for
+`jn:key-is`/`jn:index-is` instead of `=` so mixed map/array sequences
+don't throw:
+
+```xquery
+declare namespace jn = "http://github.com/vivainio/saxon-he-fork/jnode";
+
+let $root  := jn:node(parse-json($store-json)),
+    $store := jn:children($root)[jn:key-is(., 'store')],
+    $books := jn:children($store)[jn:key-is(., 'book')]
+return (
+
+  (: /store/book/*/author :)
+  for $b in jn:children($books)
+  return jn:value(jn:children($b)[jn:key-is(., 'author')]),
+
+  (: //author :)
+  for $n in jn:descendant-or-self($root)[jn:key-is(., 'author')]
+  return jn:value($n),
+
+  (: //book/*[price lt 10] :)
+  for $b in jn:children($books)[
+      let $p := jn:children(.)[jn:key-is(., 'price')]
+      return exists($p) and jn:value($p) lt 10 ]
+  return jn:value(jn:children($b)[jn:key-is(., 'title')]),
+
+  (: //book/*[isbn] :)
+  for $b in jn:children($books)[exists(jn:children(.)[jn:key-is(., 'isbn')])]
+  return jn:value(jn:children($b)[jn:key-is(., 'title')]),
+
+  (: //book/*[last()] :)
+  jn:value(jn:children(jn:children($books)[last()])[jn:key-is(., 'title')]),
+
+  (: //author[../category = 'fiction'] :)
+  for $a in jn:descendant-or-self($root)[jn:key-is(., 'author')]
+  where jn:value(jn:children(jn:parent($a))[jn:key-is(., 'category')]) = 'fiction'
+  return jn:value($a)
+)
+```
+
+Verified end-to-end against Saxonica's own example dataset (Melville,
+Rees, Tolkien; the two sub-$10 books; the one with an isbn; the last
+book; the two fiction authors) — same results the real `/`-based
+XPath 4.0 syntax would give.
+
 ### Recursive descent: flattening JSON to dotted paths
 
-There's no native `/` or `//` shortcut (that's the gated part), but
-recursive descent is a normal recursive function. This flattens any
-JSON value to `path = value` lines, mixing `.key` for map entries and
-`[index]` for array members:
+Recursive descent for a task `jn:descendant-or-self` doesn't cover
+directly (here, building a path string as you go rather than just
+collecting matches) is still a normal recursive function. This
+flattens any JSON value to `path = value` lines, mixing `.key` for map
+entries and `[index]` for array members:
 
 ```xquery
 declare namespace jn = "http://github.com/vivainio/saxon-he-fork/jnode";
@@ -153,10 +254,11 @@ No existing files in `src/main/java/net/sf/saxon/` are modified.
   fork-add-on: one outer class, one nested static class per function,
   `register(Configuration)`, and an `AutoInit` implementing
   `net.sf.saxon.lib.Initializer`.
-- `src/test/java/net/sf/saxon/fork/jnode/JNodeFunctionsTest.java` — 11
+- `src/test/java/net/sf/saxon/fork/jnode/JNodeFunctionsTest.java` — 17
   tests covering wrapping, rejection of non-map/array input, root vs.
   child properties, map-key vs. array-index selectors, parent/root
-  navigation, leaf nodes, and `jn:is-node`.
+  navigation, leaf nodes, `jn:is-node`, `jn:key-is`/`jn:index-is`
+  type-safety (both directions), and `jn:descendant-or-self`.
 
 Follows the same shape as the EXPath modules
 ([expath-modules.md](expath-modules.md)): a shared private `JNodeFn`
