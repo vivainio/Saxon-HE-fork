@@ -12,6 +12,7 @@ with full design notes, file lists, usage examples, and tests.
 | Dynamic Evaluate Extension Functions (`sk:evaluate`, `saxon:evaluate`) | Implemented | [dynamic-evaluate.md](docs/enhancements/dynamic-evaluate.md) |
 | `saxon:query()` XQuery Extension Function | Implemented | [saxon-query.md](docs/enhancements/saxon-query.md) |
 | EXPath Modules (`file:*`, `bin:*`, `arch:*` ZIP, `crypto:*` hash/HMAC) | Implemented (best-effort) | [expath-modules.md](docs/enhancements/expath-modules.md) |
+| JNode Navigation Functions (`jn:*`, JSON as navigable nodes) | Implemented | [jnode-functions.md](docs/enhancements/jnode-functions.md) |
 
 ## How to Document New Enhancements
 
