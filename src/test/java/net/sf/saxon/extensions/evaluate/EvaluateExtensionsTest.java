@@ -91,4 +91,48 @@ class EvaluateExtensionsTest {
         String out = run(xsl, "<INVOICE><HEADER><TYPE>380</TYPE></HEADER></INVOICE>");
         assertTrue(out.contains(">380</r>"), "Expected 380, got: " + out);
     }
+
+    private static String sheet(String version, String select) {
+        return "<xsl:stylesheet version='" + version + "' " +
+                "xmlns:xsl='http://www.w3.org/1999/XSL/Transform' " +
+                "xmlns:dyn='http://exslt.org/dynamic'>" +
+                "<xsl:template match='/'><r><xsl:value-of select=\"" + select + "\"/></r></xsl:template>" +
+                "</xsl:stylesheet>";
+    }
+
+    private static void assertEmptyR(String out) {
+        assertTrue(out.matches("(?s).*<r[^>]*/>.*"), "Expected empty <r/>, got: " + out);
+    }
+
+    @Test
+    void legacyModeEmptyPathYieldsEmpty() throws Exception {
+        assertEmptyR(run(sheet("1.0", "dyn:evaluate('')"), "<x/>"));
+    }
+
+    @Test
+    void legacyModeAbsentPathYieldsEmpty() throws Exception {
+        assertEmptyR(run(sheet("1.0", "dyn:evaluate(/x/missing)"), "<x/>"));
+    }
+
+    @Test
+    void legacyModeInvalidPathYieldsEmpty() throws Exception {
+        assertEmptyR(run(sheet("1.0", "dyn:evaluate('1 +')"), "<x/>"));
+    }
+
+    @Test
+    void legacyModeValidPathStillEvaluates() throws Exception {
+        assertTrue(run(sheet("1.0", "dyn:evaluate('1+2')"), "<x/>").contains(">3</r>"));
+    }
+
+    @Test
+    void strictModeAbsentPathFails() {
+        org.junit.jupiter.api.Assertions.assertThrows(SaxonApiException.class,
+                () -> run(sheet("2.0", "dyn:evaluate(/x/missing)"), "<x/>"));
+    }
+
+    @Test
+    void strictModeInvalidPathFails() {
+        org.junit.jupiter.api.Assertions.assertThrows(SaxonApiException.class,
+                () -> run(sheet("3.0", "dyn:evaluate('1 +')"), "<x/>"));
+    }
 }

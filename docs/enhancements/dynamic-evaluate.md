@@ -88,6 +88,17 @@ XSLT 3.0, and need its richer feature set: `with-param` injection,
 explicit `context-item`, explicit `namespace-context`, or
 schema-awareness.
 
+## Xalan-compatible leniency (`dyn:evaluate`, XSLT 1.0 only)
+
+For `http://exslt.org/dynamic` call sites compiled in XSLT 1.0
+(backwards-compatible) mode, an empty, absent or invalid path yields the
+empty sequence instead of failing, as Xalan does. Legacy stylesheets rely
+on this for mapping entries that are intentionally empty. The mode is
+captured per call site in `supplyStaticContext`. In 2.0/3.0 stylesheets
+and for `saxon:evaluate` the call stays strict (XPTY0004 unless exactly one
+path; XTDE3160 on a bad expression). The argument type is `item()*` so
+that the empty/absent case reaches the function.
+
 ## Limitations
 
 - **No static-namespace-context inheritance** from the calling expression.

@@ -1,20 +1,24 @@
 package net.sf.saxon.extensions.evaluate;
 
+import net.sf.saxon.expr.Expression;
+import net.sf.saxon.expr.StaticContext;
 import net.sf.saxon.expr.XPathContext;
 import net.sf.saxon.lib.ExtensionFunctionCall;
 import net.sf.saxon.lib.ExtensionFunctionDefinition;
 import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.om.GroundedValue;
+import net.sf.saxon.om.Item;
 import net.sf.saxon.om.Sequence;
 import net.sf.saxon.om.SequenceTool;
 import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.XPathCompiler;
-import net.sf.saxon.s9api.XPathExecutable;
 import net.sf.saxon.s9api.XPathSelector;
 import net.sf.saxon.s9api.XdmItem;
 import net.sf.saxon.s9api.XdmValue;
 import net.sf.saxon.trans.XPathException;
+import net.sf.saxon.value.EmptySequence;
 import net.sf.saxon.value.SequenceType;
 
 /**
@@ -68,7 +72,8 @@ public final class DynamicEvaluateDefinition extends ExtensionFunctionDefinition
 
     @Override
     public SequenceType[] getArgumentTypes() {
-        return new SequenceType[]{SequenceType.SINGLE_STRING};
+        // Any sequence: the call decides between strict and Xalan-lenient handling.
+        return new SequenceType[]{SequenceType.ANY_SEQUENCE};
     }
 
     @Override
@@ -88,35 +93,76 @@ public final class DynamicEvaluateDefinition extends ExtensionFunctionDefinition
 
     @Override
     public ExtensionFunctionCall makeCallExpression() {
-        return new Call(processor);
+        return new Call(processor, name.getNamespaceUri().equals(EXSLT_DYNAMIC));
     }
 
     private static final class Call extends ExtensionFunctionCall {
         private final Processor processor;
+        private final boolean exslt;
+        /** Per call site: true when an EXSLT call is compiled in XSLT 1.0 mode. Strict unless proven legacy. */
+        private boolean legacy;
 
-        Call(Processor processor) {
+        Call(Processor processor, boolean exslt) {
             this.processor = processor;
+            this.exslt = exslt;
+        }
+
+        @Override
+        public void supplyStaticContext(StaticContext context, int locationId, Expression[] arguments) {
+            legacy = exslt && context.isInBackwardsCompatibleMode();
+        }
+
+        // Saxon copies call expressions (inlining, optimisation); the copy must keep the mode.
+        @Override
+        public void copyLocalData(ExtensionFunctionCall destination) {
+            ((Call) destination).legacy = legacy;
         }
 
         @Override
         public Sequence call(XPathContext context, Sequence[] arguments) throws XPathException {
-            String exprText = arguments[0].head().getStringValue();
+            return legacy ? lenient(context, arguments[0]) : strict(context, arguments[0]);
+        }
+
+        /** Xalan behaviour: empty, absent or invalid path yields the empty sequence. */
+        private Sequence lenient(XPathContext context, Sequence argument) {
             try {
-                XPathCompiler compiler = processor.newXPathCompiler();
-                XPathExecutable exec = compiler.compile(exprText);
-                XPathSelector selector = exec.load();
-                if (context.getContextItem() != null) {
-                    XdmValue wrapped = XdmValue.wrap(context.getContextItem());
-                    selector.setContextItem((XdmItem) wrapped.itemAt(0));
+                Item first = argument.head();
+                String expr = first == null ? "" : first.getStringValue().trim();
+                if (expr.isEmpty()) {
+                    return EmptySequence.getInstance();
                 }
-                XdmValue result = selector.evaluate();
-                return SequenceTool.toGroundedValue(result.getUnderlyingValue().iterate());
+                return evaluate(context, expr);
+            } catch (SaxonApiException | XPathException | RuntimeException e) {
+                return EmptySequence.getInstance();
+            }
+        }
+
+        private Sequence strict(XPathContext context, Sequence argument) throws XPathException {
+            GroundedValue value = argument.materialize();
+            if (value.getLength() != 1) {
+                throw new XPathException("evaluate() requires exactly one path expression, got "
+                        + value.getLength(), "XPTY0004");
+            }
+            String exprText = value.head().getStringValue();
+            try {
+                return evaluate(context, exprText);
             } catch (SaxonApiException e) {
                 throw new XPathException(
                         "Error in dynamic evaluate(): " + e.getMessage() +
                                 ". Expression: {" + exprText + "}",
                         "XTDE3160");
             }
+        }
+
+        private Sequence evaluate(XPathContext context, String exprText) throws SaxonApiException {
+            XPathCompiler compiler = processor.newXPathCompiler();
+            XPathSelector selector = compiler.compile(exprText).load();
+            if (context.getContextItem() != null) {
+                XdmValue wrapped = XdmValue.wrap(context.getContextItem());
+                selector.setContextItem((XdmItem) wrapped.itemAt(0));
+            }
+            XdmValue result = selector.evaluate();
+            return SequenceTool.toGroundedValue(result.getUnderlyingValue().iterate());
         }
     }
 }
