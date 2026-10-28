@@ -21,9 +21,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # Use major.minor version matching upstream Saxon-HE
+      # Tag vX.Y.Z -> X.Y.Z (X.Y matches upstream Saxon-HE, Z is the fork release)
       - name: Set version from tag
-        run: mvn versions:set -DnewVersion=13.0 -DgenerateBackupFiles=false
+        run: mvn versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupFiles=false
 
       - name: Build JAR
         run: mvn -B package -DskipTests --file pom.xml
