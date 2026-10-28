@@ -13,6 +13,7 @@ with full design notes, file lists, usage examples, and tests.
 | `saxon:query()` XQuery Extension Function | Implemented | [saxon-query.md](docs/enhancements/saxon-query.md) |
 | EXPath Modules (`file:*`, `bin:*`, `arch:*` ZIP, `crypto:*` hash/HMAC) | Implemented (best-effort) | [expath-modules.md](docs/enhancements/expath-modules.md) |
 | JNode Navigation Functions (`jn:*`, JSON as navigable nodes) | Implemented | [jnode-functions.md](docs/enhancements/jnode-functions.md) |
+| Static error deferral policy (`StaticErrorPolicy`, Xalan-style lazy XPath type errors) | Implemented | [static-error-policy.md](docs/enhancements/static-error-policy.md) |
 
 ## How to Document New Enhancements
 

@@ -1723,7 +1723,9 @@ public abstract class StyleElement extends ElementImpl {
             // is actually executed.
             //err.printStackTrace();
             XPathException e2 = err;
-            if (e2.isReportableStatically()) {
+            // Fork enhancement: a StaticErrorPolicy may defer static errors to run time (see ENHANCEMENTS.md)
+            if (e2.isReportableStatically()
+                    && !net.sf.saxon.trans.StaticErrorPolicy.shouldDefer(config, e2, makeExpressionVisitor().getStaticContext())) {
                 if (!(e2.getLocator() instanceof XPathParser.NestedLocation)) {
                     e2 = e2.withLocation(new AttributeLocation(this, StructuredQName.fromClarkName(name)));
                 }
